@@ -63,15 +63,16 @@ main = do
 -- ---------------------------------------------------------------------
 
 data Config = Config {fooTheBar :: Bool, wibbleFactor :: Int}
-  deriving (Generic, J.ToJSON, J.FromJSON, Show)
+  deriving stock (Generic, Show)
+  deriving anyclass (J.ToJSON, J.FromJSON)
 
 run :: IO Int
 run = flip E.catches handlers $ do
   rin <- atomically newTChan :: IO (TChan ReactorInput)
 
   let -- Three loggers:
-      -- 1. To stderr
-      -- 2. To the client (filtered by severity)
+      -- 1. To stderr (shows up in the "Output" panel in vscode)
+      -- 2. To the client (shows up as a user notification, filtered by severity)
       -- 3. To both
       stderrLogger :: LogAction IO (WithSeverity T.Text)
       stderrLogger = L.cmap show L.logStringStderr
@@ -175,18 +176,18 @@ reactor logger inp = do
 lspHandlers :: (m ~ LspM Config) => L.LogAction m (WithSeverity T.Text) -> TChan ReactorInput -> Handlers m
 lspHandlers logger rin = mapHandlers goReq goNot (handle logger)
   where
-    goReq :: forall (a :: LSP.Method LSP.ClientToServer LSP.Request). Handler (LspM Config) a -> Handler (LspM Config) a
+    goReq :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Request). Handler (LspM Config) a -> Handler (LspM Config) a
     goReq f = \msg k -> do
       env <- getLspEnv
       liftIO $ atomically $ writeTChan rin $ ReactorAction (runLspT env $ f msg k)
 
-    goNot :: forall (a :: LSP.Method LSP.ClientToServer LSP.Notification). Handler (LspM Config) a -> Handler (LspM Config) a
+    goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler (LspM Config) a -> Handler (LspM Config) a
     goNot f = \msg -> do
       env <- getLspEnv
       liftIO $ atomically $ writeTChan rin $ ReactorAction (runLspT env $ f msg)
 
 -- | Where the actual logic resides for handling requests and notifications.
-handle :: (m ~ LspM Config) => L.LogAction m (WithSeverity T.Text) -> Handlers m
+handle :: L.LogAction (LspM Config) (WithSeverity T.Text) -> Handlers (LspM Config)
 handle logger =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
