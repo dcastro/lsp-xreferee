@@ -23,11 +23,14 @@ module Lib where
 import Colog.Core (LogAction (..), Severity (..), WithSeverity (..), (<&))
 import Colog.Core qualified as L
 import Control.Concurrent
+import Control.Concurrent.STM (TVar)
+import Control.Concurrent.STM qualified as STM
 import Control.Concurrent.STM.TChan
 import Control.Exception qualified as E
 import Control.Lens hiding (Iso)
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Reader (ReaderT (runReaderT), ask)
 import Control.Monad.STM
 import Data.Aeson qualified as J
 import Data.Int (Int32)
@@ -39,10 +42,12 @@ import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server
-import Language.LSP.VFS
+import Language.LSP.Server qualified as LSP
+import Language.LSP.VFS qualified as VFS
 import Prettyprinter
 import System.Exit
 import System.IO
+import XReferee.SearchResult qualified as X
 
 -- ---------------------------------------------------------------------
 {-# ANN module ("HLint: ignore Eta reduce" :: String) #-}
@@ -60,6 +65,31 @@ main = do
     0 -> exitSuccess
     c -> exitWith . ExitFailure $ c
 
+searchOpts :: X.SearchOpts
+searchOpts =
+  X.SearchOpts
+    { ignores = []
+    }
+
+data AppState = AppState
+  { state :: X.SearchResult
+  }
+  deriving stock (Show)
+
+type AppM = ReaderT (TVar AppState) (LspM Config)
+
+runAppM :: AppState -> LanguageContextEnv Config -> AppM a -> IO a
+runAppM appState env act = do
+  stateVar <- STM.newTVarIO appState
+  act
+    & flip runReaderT stateVar
+    & runLspT env
+
+getState :: AppM AppState
+getState = do
+  stateVar <- ask
+  liftIO $ STM.readTVarIO stateVar
+
 -- ---------------------------------------------------------------------
 
 data Config = Config {fooTheBar :: Bool, wibbleFactor :: Int}
@@ -70,38 +100,58 @@ run :: IO Int
 run = flip E.catches handlers $ do
   rin <- atomically newTChan :: IO (TChan ReactorInput)
 
+  logFileHandle <- do
+    -- TODO: change this to a proper path
+    let logFilePath = "/home/dc/Dropbox/Projects/xreferee/lsp-xreferee/log.log"
+    logFileHandle <- openFile logFilePath AppendMode
+    hSetBuffering logFileHandle NoBuffering
+    newMVar logFileHandle
+
   let -- Three loggers:
       -- 1. To stderr (shows up in the "Output" panel in vscode)
       -- 2. To the client (shows up as a user notification, filtered by severity)
       -- 3. To both
       stderrLogger :: LogAction IO (WithSeverity T.Text)
       stderrLogger = L.cmap show L.logStringStderr
-      clientLogger :: LogAction (LspM Config) (WithSeverity T.Text)
+
+      clientLogger :: (MonadLsp Config m) => LogAction m (WithSeverity T.Text)
       clientLogger = defaultClientLogger
-      dualLogger :: LogAction (LspM Config) (WithSeverity T.Text)
-      dualLogger = clientLogger <> L.hoistLogAction liftIO stderrLogger
+
+      fileLogger :: LogAction IO (WithSeverity T.Text)
+      fileLogger = L.LogAction $ \msg -> withMVar logFileHandle $ \logFileHandle -> hPutStrLn logFileHandle (T.unpack $ getMsg msg)
+
+      allLoggers :: (MonadLsp Config m) => LogAction m (WithSeverity T.Text)
+      allLoggers =
+        clientLogger <> L.hoistLogAction liftIO stderrLogger <> L.hoistLogAction liftIO fileLogger
 
       serverDefinition =
         ServerDefinition
           { defaultConfig = Config {fooTheBar = False, wibbleFactor = 0},
             parseConfig = \_old v -> do
               case J.fromJSON v of
-                J.Error e -> Left (T.pack e)
+                J.Error _e ->
+                  -- TODO review config
+                  -- J.Error e -> Left (T.pack e)
+                  Right $ Config {fooTheBar = False, wibbleFactor = 0}
                 J.Success cfg -> Right cfg,
             onConfigChange = const $ pure (),
+            -- TODO: config section
             configSection = "demo",
-            doInitialize = \env _ -> forkIO (reactor stderrLogger rin) >> pure (Right env),
-            -- Handlers log to both the client and stderr
-            staticHandlers = \_caps -> lspHandlers dualLogger rin,
-            interpretHandler = \env -> Iso (runLspT env) liftIO,
+            doInitialize = \env _initializeMsg -> do
+              _ <- forkIO (reactor stderrLogger rin)
+              result <- initialize fileLogger
+              let appState = AppState {state = result}
+              pure (Right (env, appState)),
+            staticHandlers = \_caps -> lspHandlers allLoggers rin,
+            interpretHandler = \(env, appState) -> Iso (runAppM appState env) liftIO,
             options = lspOptions
           }
 
   let logToText = T.pack . show . pretty
   runServerWithHandles
     -- Log to both the client and stderr when we can, stderr beforehand
-    (L.cmap (fmap logToText) stderrLogger)
-    (L.cmap (fmap logToText) dualLogger)
+    (L.cmap (fmap logToText) (stderrLogger <> fileLogger))
+    (L.cmap (fmap logToText) allLoggers)
     stdin
     stdout
     serverDefinition
@@ -113,12 +163,20 @@ run = flip E.catches handlers $ do
     ioExcept (e :: E.IOException) = print e >> return 1
     someExcept (e :: E.SomeException) = print e >> return 1
 
+initialize :: L.LogAction IO (WithSeverity T.Text) -> IO X.SearchResult
+initialize logger = do
+  result <- liftIO (X.findRefsFromGit searchOpts)
+  logger <& ("Search results: " <> (T.pack $ show result)) `WithSeverity` Info
+  pure result
+
 -- ---------------------------------------------------------------------
 
+-- TODO: review these
 syncOptions :: LSP.TextDocumentSyncOptions
 syncOptions =
   LSP.TextDocumentSyncOptions
-    { LSP._openClose = Just True,
+    { -- We need to process the open and close notifications to keep the VFS up to date.
+      LSP._openClose = Just True,
       LSP._change = Just LSP.TextDocumentSyncKind_Incremental,
       LSP._willSave = Just False,
       LSP._willSaveWaitUntil = Just False,
@@ -129,6 +187,7 @@ lspOptions :: Options
 lspOptions =
   defaultOptions
     { optTextDocumentSync = Just syncOptions,
+      -- TODO: review this
       optExecuteCommandCommands = Just ["lsp-hello-command"]
     }
 
@@ -143,7 +202,7 @@ newtype ReactorInput
 
 -- | Analyze the file and send any diagnostics to the client in a
 -- "textDocument/publishDiagnostics" notification
-sendDiagnostics :: LSP.NormalizedUri -> Maybe Int32 -> LspM Config ()
+sendDiagnostics :: LSP.NormalizedUri -> Maybe Int32 -> AppM ()
 sendDiagnostics fileUri version = do
   let diags =
         [ LSP.Diagnostic
@@ -173,21 +232,23 @@ reactor logger inp = do
 
 -- | Check if we have a handler, and if we create a haskell-lsp handler to pass it as
 -- input into the reactor
-lspHandlers :: (m ~ LspM Config) => L.LogAction m (WithSeverity T.Text) -> TChan ReactorInput -> Handlers m
+lspHandlers :: L.LogAction AppM (WithSeverity T.Text) -> TChan ReactorInput -> Handlers AppM
 lspHandlers logger rin = mapHandlers goReq goNot (handle logger)
   where
-    goReq :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Request). Handler (LspM Config) a -> Handler (LspM Config) a
+    goReq :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Request). Handler AppM a -> Handler AppM a
     goReq f = \msg k -> do
       env <- getLspEnv
-      liftIO $ atomically $ writeTChan rin $ ReactorAction (runLspT env $ f msg k)
+      appState :: TVar AppState <- ask
+      liftIO $ atomically $ writeTChan rin $ ReactorAction (runLspT env $ flip runReaderT appState $ f msg k)
 
-    goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler (LspM Config) a -> Handler (LspM Config) a
+    goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler AppM a -> Handler AppM a
     goNot f = \msg -> do
       env <- getLspEnv
-      liftIO $ atomically $ writeTChan rin $ ReactorAction (runLspT env $ f msg)
+      appState :: TVar AppState <- ask
+      liftIO $ atomically $ writeTChan rin $ ReactorAction (runLspT env $ flip runReaderT appState $ f msg)
 
 -- | Where the actual logic resides for handling requests and notifications.
-handle :: L.LogAction (LspM Config) (WithSeverity T.Text) -> Handlers (LspM Config)
+handle :: L.LogAction AppM (WithSeverity T.Text) -> Handlers AppM
 handle logger =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
