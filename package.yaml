@@ -1,0 +1,79 @@
+name: lsp-xreferee
+version: 0.1.0.0
+github: 'githubuser/lsp-xreferee'
+license: BSD-3-Clause
+author: 'Author name here'
+maintainer: 'example@example.com'
+copyright: '2026 Author name here'
+
+extra-source-files:
+  - README.md
+  - CHANGELOG.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description: Please see the README on GitHub at <https://github.com/githubuser/lsp-xreferee#readme>
+
+dependencies:
+  - base >= 4.7 && < 5
+  - xreferee
+  - lsp
+  - lsp-types
+  - lens
+  - stm
+  - text
+  - aeson
+  - prettyprinter
+  - co-log-core
+
+ghc-options:
+  - -Weverything
+  - -Wno-name-shadowing
+  - -Wno-missing-exported-signatures
+  - -Wno-missing-import-lists
+  - -Wno-missing-export-lists
+  - -Wno-missed-specialisations
+  - -Wno-all-missed-specialisations
+  - -Wno-unsafe
+  - -Wno-safe
+  - -Wno-missing-local-signatures
+  - -Wno-monomorphism-restriction
+  - -Wno-implicit-prelude
+  - -Wno-prepositive-qualified-module
+  - -Wno-missing-safe-haskell-mode
+  - -Wno-unused-packages
+  - -Wno-missing-kind-signatures
+  - -Wno-missing-role-annotations
+
+default-extensions:
+  - GHC2024
+
+library:
+  source-dirs: src
+
+executables:
+  lsp-xreferee-exe:
+    main: Main.hs
+    source-dirs: app
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+    dependencies:
+      - lsp-xreferee
+
+tests:
+  lsp-xreferee-test:
+    main: Spec.hs
+    source-dirs: test
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+    dependencies:
+      - lsp-xreferee
