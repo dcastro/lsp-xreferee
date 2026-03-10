@@ -25,7 +25,6 @@ import Colog.Core qualified as L
 import Control.Concurrent
 import Control.Concurrent.STM (TVar)
 import Control.Concurrent.STM qualified as STM
-import Control.Concurrent.STM.TChan
 import Control.Exception qualified as E
 import Control.Lens hiding (Iso)
 import Control.Monad
@@ -107,8 +106,6 @@ data Config = Config {fooTheBar :: Bool, wibbleFactor :: Int}
 
 run :: IO Int
 run = flip E.catches handlers $ do
-  rin <- atomically newTChan :: IO (TChan ReactorInput)
-
   logFileHandle <- do
     -- TODO: change this to a proper path
     let logFilePath = "/home/dc/Dropbox/Projects/xreferee/lsp-xreferee/log.log"
@@ -147,11 +144,10 @@ run = flip E.catches handlers $ do
             -- TODO: config section
             configSection = "demo",
             doInitialize = \env _initializeMsg -> do
-              _ <- forkIO (reactor stderrLogger rin)
               result <- initialize fileLogger
               let appState = AppState {result}
               pure (Right (env, appState)),
-            staticHandlers = \_caps -> lspHandlers allLoggers rin,
+            staticHandlers = \_caps -> handle allLoggers,
             interpretHandler = \(env, appState) -> Iso (runAppM appState env) liftIO,
             options = lspOptions
           }
@@ -228,33 +224,6 @@ sendDiagnostics fileUri version = do
   publishDiagnostics 100 fileUri version (partitionBySource diags)
 
 -- ---------------------------------------------------------------------
-
--- | The single point that all events flow through, allowing management of state
--- to stitch replies and requests together from the two asynchronous sides: lsp
--- server and backend compiler
-reactor :: LogAction IO (WithSeverity Text) -> TChan ReactorInput -> IO ()
-reactor logger inp = do
-  logger <& "Started the reactor" `WithSeverity` Info
-  forever $ do
-    ReactorAction act <- atomically $ readTChan inp
-    act
-
--- | Check if we have a handler, and if we create a haskell-lsp handler to pass it as
--- input into the reactor
-lspHandlers :: AppLogger -> TChan ReactorInput -> Handlers AppM
-lspHandlers logger rin = mapHandlers goReq goNot (handle logger)
-  where
-    goReq :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Request). Handler AppM a -> Handler AppM a
-    goReq f = \msg k -> do
-      env <- getLspEnv
-      appState :: TVar AppState <- ask
-      liftIO $ atomically $ writeTChan rin $ ReactorAction (runLspT env $ flip runReaderT appState $ f msg k)
-
-    goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler AppM a -> Handler AppM a
-    goNot f = \msg -> do
-      env <- getLspEnv
-      appState :: TVar AppState <- ask
-      liftIO $ atomically $ writeTChan rin $ ReactorAction (runLspT env $ flip runReaderT appState $ f msg)
 
 -- | Where the actual logic resides for handling requests and notifications.
 handle :: AppLogger -> Handlers AppM
