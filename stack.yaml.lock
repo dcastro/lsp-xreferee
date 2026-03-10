@@ -5,17 +5,6 @@
 
 packages:
 - completed:
-    commit: 6a5c44856b4b181392c751cfc8640d1ad9648f56
-    git: https://github.com/brandonchinn178/xreferee.git
-    name: xreferee
-    pantry-tree:
-      sha256: e0a6ffedeb65903f4d2605f3794f1a5c6d039df500a5b9a74786b887e13e77a6
-      size: 4933
-    version: 1.0.0
-  original:
-    commit: 6a5c44856b4b181392c751cfc8640d1ad9648f56
-    git: https://github.com/brandonchinn178/xreferee.git
-- completed:
     hackage: lsp-2.8.0.0@sha256:cee3b1ed7984ab21f77a7ef59d55602ace016cf188bd7c530d54f62b2e9dfb1d,3909
     pantry-tree:
       sha256: a3ccf598d55afadd3e244fa0b25a6e5dd36348243ffc414a8bb96734efc3a06f

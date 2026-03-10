@@ -31,6 +31,8 @@ dependencies:
   - prettyprinter
   - co-log-core
   - mtl
+  - containers
+  - directory
 
 ghc-options:
   - -Weverything
@@ -53,6 +55,10 @@ ghc-options:
 
 default-extensions:
   - GHC2024
+  - DuplicateRecordFields
+  - OverloadedRecordDot
+  - NoFieldSelectors
+  - BlockArguments
 
 library:
   source-dirs: src

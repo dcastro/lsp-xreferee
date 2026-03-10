@@ -35,8 +35,9 @@ packages:
 # forks / in-progress versions pinned to a git hash. For example:
 #
 extra-deps:
-  - git: https://github.com/brandonchinn178/xreferee.git
-    commit: 6a5c44856b4b181392c751cfc8640d1ad9648f56
+  # - git: https://github.com/brandonchinn178/xreferee.git
+  #   commit: 6a5c44856b4b181392c751cfc8640d1ad9648f56
+  - /home/dc/Dropbox/Projects/xreferee/xreferee/
   - lsp-2.8.0.0
   - lsp-types-2.4.0.0
 #
