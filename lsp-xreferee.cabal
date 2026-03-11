@@ -49,6 +49,7 @@ library
     , lsp
     , lsp-types
     , mtl
+    , pretty-simple
     , prettyprinter
     , stm
     , text
@@ -81,6 +82,7 @@ executable lsp-xreferee-exe
     , lsp-types
     , lsp-xreferee
     , mtl
+    , pretty-simple
     , prettyprinter
     , stm
     , text
@@ -114,6 +116,7 @@ test-suite lsp-xreferee-test
     , lsp-types
     , lsp-xreferee
     , mtl
+    , pretty-simple
     , prettyprinter
     , stm
     , text

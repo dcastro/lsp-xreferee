@@ -30,7 +30,6 @@ import Control.Lens hiding (Iso)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Reader (ReaderT (runReaderT), ask)
-import Control.Monad.STM
 import Data.Aeson qualified as J
 import Data.Int (Int32)
 import Data.List qualified as List
@@ -38,6 +37,7 @@ import Data.Map qualified as Map
 import Data.Maybe qualified as Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Lazy qualified as LT
 import GHC.Generics (Generic)
 import Language.LSP.Diagnostics
 import Language.LSP.Logging (defaultClientLogger)
@@ -46,12 +46,12 @@ import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (UInt)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server
-import Language.LSP.Server qualified as LSP
 import Language.LSP.VFS qualified as VFS
 import Prettyprinter
 import System.Directory qualified as Dir
 import System.Exit
 import System.IO
+import Text.Pretty.Simple (pShowNoColor)
 import XReferee.SearchResult (SearchResult (..))
 import XReferee.SearchResult qualified as X
 
@@ -225,6 +225,14 @@ sendDiagnostics fileUri version = do
 
 -- ---------------------------------------------------------------------
 
+logReq :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TRequestMessage a -> AppM ()
+logReq logger msg = do
+  logger <& (LT.toStrict $ pShowNoColor msg) `WithSeverity` Debug
+
+logNot :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TNotificationMessage a -> AppM ()
+logNot logger msg = do
+  logger <& (LT.toStrict $ pShowNoColor msg) `WithSeverity` Debug
+
 -- | Where the actual logic resides for handling requests and notifications.
 handle :: AppLogger -> Handlers AppM
 handle logger =
@@ -272,17 +280,18 @@ handle logger =
           LSP.ShowMessageParams LSP.MessageType_Info $
             "Wibble factor set to " <> T.pack (show cfg.wibbleFactor),
       notificationHandler LSP.SMethod_TextDocumentDidChange $ \msg -> do
+        logNot logger msg
         let doc =
               msg
                 ^. LSP.params
                   . LSP.textDocument
                   . LSP.uri
                   . to LSP.toNormalizedUri
-        logger <& ("Processing DidChangeTextDocument for: " <> T.pack (show doc)) `WithSeverity` Info
+
         mdoc <- getVirtualFile doc
         case mdoc of
-          Just (VirtualFile _version str _ _) -> do
-            logger <& ("Found the virtual file: " <> T.pack (show str)) `WithSeverity` Info
+          Just vf@(VFS.VirtualFile _version _str _ _) -> do
+            logger <& ("Found the virtual file: " <> T.pack (show vf)) `WithSeverity` Info
           Nothing -> do
             logger <& ("Didn't find anything in the VFS for: " <> T.pack (show doc)) `WithSeverity` Info,
       notificationHandler LSP.SMethod_TextDocumentDidSave $ \msg -> do
@@ -354,6 +363,8 @@ handle logger =
 
 handleDefinition :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDefinition
 handleDefinition logger = \req responder -> do
+  logReq logger req
+
   -- TODO: Make paths absolute after xreferee is run, convert to Uri
   -- TODO: line should be 0-based, xrefcheck uses 1-based
   -- TODO: xreferee: make column 1-based, like `git grep`, but then convert to 0-based here for LSP

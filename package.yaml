@@ -33,6 +33,7 @@ dependencies:
   - mtl
   - containers
   - directory
+  - pretty-simple
 
 ghc-options:
   - -Weverything
