@@ -111,7 +111,7 @@ run = flip E.catches handlers $ do
     let logFilePath = "/home/dc/Dropbox/Projects/xreferee/lsp-xreferee/log.log"
     logFileHandle <- openFile logFilePath AppendMode
     hSetBuffering logFileHandle NoBuffering
-    newMVar logFileHandle
+    pure logFileHandle
 
   let -- Three loggers:
       -- 1. To stderr (shows up in the "Output" panel in vscode)
@@ -124,7 +124,7 @@ run = flip E.catches handlers $ do
       clientLogger = defaultClientLogger
 
       fileLogger :: LogAction IO (WithSeverity Text)
-      fileLogger = LogAction $ \msg -> withMVar logFileHandle $ \logFileHandle -> hPutStrLn logFileHandle (T.unpack $ getMsg msg)
+      fileLogger = LogAction $ \msg -> hPutStrLn logFileHandle (T.unpack $ getMsg msg)
 
       allLoggers :: (MonadLsp Config m) => LogAction m (WithSeverity Text)
       allLoggers =
