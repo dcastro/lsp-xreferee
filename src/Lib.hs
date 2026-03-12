@@ -372,8 +372,7 @@ handleDefinition logger = \req responder -> do
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri . to LSP.uriToFilePath & Maybe.fromJust
   let reqPos = req ^. LSP.params ^. LSP.position
   let reqLine = reqPos ^. LSP.line
-  let reqLine' = fromIntegral @LSP.UInt @Int reqLine + 1
-  let reqColumn = reqPos ^. LSP.character . to (fromIntegral @LSP.UInt @Int)
+  let reqColumn = reqPos ^. LSP.character
 
   reqPath <- liftIO $ Dir.makeRelativeToCurrentDirectory reqUri
 
@@ -387,9 +386,9 @@ handleDefinition logger = \req responder -> do
                   List.find
                     ( \loc ->
                         loc.filepath == reqPath
-                          && loc.lineNum == reqLine'
-                          && loc.columnRange.start - 1 <= reqColumn
-                          && reqColumn <= loc.columnRange.end - 1
+                          && xToLsp loc.lineNum == reqLine
+                          && xToLsp loc.columnRange.start <= reqColumn
+                          && reqColumn <= xToLsp loc.columnRange.end
                     )
                     locs
                 Just (ref, refLoc)
@@ -414,12 +413,12 @@ handleDefinition logger = \req responder -> do
 
             let refRange =
                   LSP.Range
-                    (LSP.Position reqLine (fromIntegral @Int @UInt refLoc.columnRange.start - 1))
-                    (LSP.Position reqLine (fromIntegral @Int @UInt refLoc.columnRange.end - 1 + 1))
+                    (LSP.Position reqLine (xToLsp refLoc.columnRange.start))
+                    (LSP.Position reqLine (xToLsp refLoc.columnRange.end + 1))
             let anchorRange =
                   LSP.Range
-                    (LSP.Position (fromIntegral @Int @LSP.UInt anchorLoc.lineNum - 1) (fromIntegral @Int @UInt anchorLoc.columnRange.start - 1))
-                    (LSP.Position (fromIntegral @Int @LSP.UInt anchorLoc.lineNum - 1) (fromIntegral @Int @UInt anchorLoc.columnRange.end - 1 + 1))
+                    (LSP.Position (xToLsp anchorLoc.lineNum) (xToLsp anchorLoc.columnRange.start))
+                    (LSP.Position (xToLsp anchorLoc.lineNum) (xToLsp anchorLoc.columnRange.end + 1))
             pure $
               LSP.DefinitionLink
                 LSP.LocationLink
@@ -452,7 +451,7 @@ handleDidChange logger = \req -> do
                         mkLoc columnRange =
                           X.LabelLoc
                             { filepath = filePath,
-                              lineNum = lineNum + 1, -- xreferee uses 1-based lines, but LSP uses 0-based lines
+                              lineNum = lspToX $ fromIntegral lineNum,
                               columnRange
                             }
                      in SearchResult
@@ -494,12 +493,12 @@ applyChanges _logger appState filePath diffs =
                     pure $ Just loc
                   else
                     -- Discard anchors/refs on lines that were modified
-                    if xLineToLspLine loc.lineNum >= oldLineStart && xLineToLspLine loc.lineNum <= oldLineEnd
+                    if xToLsp loc.lineNum >= oldLineStart && xToLsp loc.lineNum <= oldLineEnd
                       then do
                         pure Nothing
                       else
                         -- Update the line numbers of anchors/refs that are after the diff
-                        if xLineToLspLine loc.lineNum > oldLineEnd
+                        if xToLsp loc.lineNum > oldLineEnd
                           then do
                             pure $
                               Just loc {X.lineNum = loc.lineNum + lineDelta}
@@ -556,6 +555,10 @@ data ApplyChangesResult = ApplyChangesResult
     appState :: AppState
   }
 
--- Xreferee uses 1-based lines, but LSP uses 0-based lines.
-xLineToLspLine :: Int -> LSP.UInt
-xLineToLspLine xLine = fromIntegral @Int @LSP.UInt (xLine - 1)
+-- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
+xToLsp :: Int -> LSP.UInt
+xToLsp xLine = fromIntegral @Int @LSP.UInt (xLine - 1)
+
+-- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
+lspToX :: LSP.UInt -> Int
+lspToX xLine = fromIntegral @LSP.UInt @Int (xLine + 1)
