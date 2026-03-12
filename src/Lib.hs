@@ -23,8 +23,6 @@ module Lib where
 import Colog.Core (LogAction (..), Severity (..), WithSeverity (..), (<&))
 import Colog.Core qualified as L
 import Control.Concurrent
-import Control.Concurrent.STM (TVar)
-import Control.Concurrent.STM qualified as STM
 import Control.Exception qualified as E
 import Control.Lens hiding (Iso)
 import Control.Monad
@@ -38,6 +36,7 @@ import Data.Maybe qualified as Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as LT
+import Data.Text.Mixed.Rope qualified as Rope
 import GHC.Generics (Generic)
 import Language.LSP.Diagnostics
 import Language.LSP.Logging (defaultClientLogger)
@@ -45,13 +44,14 @@ import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (UInt)
 import Language.LSP.Protocol.Types qualified as LSP
-import Language.LSP.Server
+import Language.LSP.Server as LSP
 import Language.LSP.VFS qualified as VFS
 import Prettyprinter
 import System.Directory qualified as Dir
 import System.Exit
 import System.IO
 import Text.Pretty.Simple (pShowNoColor)
+import UnliftIO.MVar qualified as Unlift
 import XReferee.SearchResult (SearchResult (..))
 import XReferee.SearchResult qualified as X
 
@@ -82,13 +82,13 @@ data AppState = AppState
   }
   deriving stock (Show)
 
-type AppM = ReaderT (TVar AppState) (LspM Config)
+type AppM = ReaderT (MVar AppState) (LspM Config)
 
 type AppLogger = LogAction AppM (WithSeverity Text)
 
 runAppM :: AppState -> LanguageContextEnv Config -> AppM a -> IO a
 runAppM appState env act = do
-  stateVar <- STM.newTVarIO appState
+  stateVar <- newMVar appState
   act
     & flip runReaderT stateVar
     & runLspT env
@@ -96,7 +96,7 @@ runAppM appState env act = do
 getState :: AppM AppState
 getState = do
   stateVar <- ask
-  liftIO $ STM.readTVarIO stateVar
+  liftIO $ readMVar stateVar
 
 -- ---------------------------------------------------------------------
 
@@ -279,21 +279,22 @@ handle logger =
         sendNotification LSP.SMethod_WindowShowMessage $
           LSP.ShowMessageParams LSP.MessageType_Info $
             "Wibble factor set to " <> T.pack (show cfg.wibbleFactor),
-      notificationHandler LSP.SMethod_TextDocumentDidChange $ \msg -> do
-        logNot logger msg
-        let doc =
-              msg
-                ^. LSP.params
-                  . LSP.textDocument
-                  . LSP.uri
-                  . to LSP.toNormalizedUri
+      notificationHandler LSP.SMethod_TextDocumentDidChange (handleDidChange logger),
+      -- notificationHandler LSP.SMethod_TextDocumentDidChange $ \msg -> do
+      -- logNot logger msg
+      -- let doc =
+      --       msg
+      --         ^. LSP.params
+      --           . LSP.textDocument
+      --           . LSP.uri
+      --           . to LSP.toNormalizedUri
 
-        mdoc <- getVirtualFile doc
-        case mdoc of
-          Just vf@(VFS.VirtualFile _version _str _ _) -> do
-            logger <& ("Found the virtual file: " <> T.pack (show vf)) `WithSeverity` Info
-          Nothing -> do
-            logger <& ("Didn't find anything in the VFS for: " <> T.pack (show doc)) `WithSeverity` Info,
+      -- mdoc <- getVirtualFile doc
+      -- case mdoc of
+      --   Just vf@(VFS.VirtualFile _version _str _ _) -> do
+      --     logger <& ("Found the virtual file: " <> T.pack (show vf)) `WithSeverity` Info
+      --   Nothing -> do
+      --     logger <& ("Didn't find anything in the VFS for: " <> T.pack (show doc)) `WithSeverity` Info,
       notificationHandler LSP.SMethod_TextDocumentDidSave $ \msg -> do
         let doc = msg ^. LSP.params . LSP.textDocument . LSP.uri
             fileName = LSP.uriToFilePath doc
@@ -430,4 +431,157 @@ handleDefinition logger = \req responder -> do
                   }
           responder $ Right $ LSP.InR (LSP.InL locs)
 
--- ---------------------------------------------------------------------
+handleDidChange :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidChange
+handleDidChange logger = \req -> do
+  logNot logger req
+
+  let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  filePath <- liftIO $ Dir.makeRelativeToCurrentDirectory $ uri & LSP.uriToFilePath & Maybe.fromJust
+  vf <- Maybe.fromJust <$> LSP.getVirtualFile (LSP.toNormalizedUri uri)
+  let rope = vf ^. VFS.file_text
+
+  let diffs = req ^. LSP.params . LSP.contentChanges
+  appStateVar <- ask
+  Unlift.modifyMVar_ appStateVar \appState0 -> do
+    let ApplyChangesResult linesToParse appState1 = applyChanges appState0 filePath diffs
+        searchResult =
+          linesToParse
+            <&> ( \lineNum ->
+                    let line = rope & Rope.getLine (fromIntegral @Int @Word lineNum) & Rope.toText
+                        (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
+                        mkLoc columnRange =
+                          X.LabelLoc
+                            { filepath = filePath,
+                              lineNum = lineNum + 1, -- xreferee uses 1-based lines, but LSP uses 0-based lines
+                              columnRange
+                            }
+                     in SearchResult
+                          { anchors = Map.fromListWith (<>) [(anchor, [mkLoc range]) | (anchor, range) <- anchors],
+                            references = Map.fromListWith (<>) [(ref, [mkLoc range]) | (ref, range) <- refs]
+                          }
+                )
+            & mconcat
+        appState2 = appState1 {result = appState1.result <> searchResult}
+
+    logger <& ("--- did change state --- ") `WithSeverity` Debug
+    logger <& (LT.toStrict $ pShowNoColor appState2) `WithSeverity` Debug
+
+    pure $ appState2
+
+-- | Calculates which lines we'll need to reparse after applying the given diffs.
+-- Removes anchors/refs that are on lines that were modified by the diffs,
+-- and updates the line numbers of anchors/refs that are located after the diffs.
+applyChanges :: AppState -> FilePath -> [LSP.TextDocumentContentChangeEvent] -> ApplyChangesResult
+applyChanges appState filePath diffs =
+  let initialState = ApplyChangesResult {linesToParse = [], appState = appState}
+   in foldl' go initialState diffs
+  where
+    go :: ApplyChangesResult -> LSP.TextDocumentContentChangeEvent -> ApplyChangesResult
+    go state diff =
+      case diff of
+        LSP.TextDocumentContentChangeEvent (LSP.InR _wholeDoc) -> error "We should only get partial document updates, not whole document updates"
+        LSP.TextDocumentContentChangeEvent (LSP.InL diff) ->
+          let oldLineStart = diff ^. LSP.range . LSP.start . LSP.line
+              oldLineEnd = diff ^. LSP.range . LSP.end . LSP.line
+              oldLineCount = oldLineEnd - oldLineStart + 1
+              newLineCount = diff ^. LSP.text . to (T.count "\n") + 1
+
+              -- How many lines were added (or removed) by this diff.
+              lineDelta = newLineCount - fromIntegral @UInt @Int oldLineCount
+
+              updateLoc :: X.LabelLoc -> Maybe X.LabelLoc
+              updateLoc loc =
+                if loc.filepath /= filePath
+                  then
+                    -- Anchors/refs from other files are unaffected
+                    Just loc
+                  else
+                    -- Discard anchors/refs on lines that were modified
+                    if xLineToLspLine loc.lineNum >= oldLineStart && xLineToLspLine loc.lineNum <= oldLineEnd
+                      then Nothing
+                      else
+                        -- Update the line numbers of anchors/refs that are after the diff
+                        if xLineToLspLine loc.lineNum > oldLineEnd
+                          then Just loc {X.lineNum = loc.lineNum + lineDelta}
+                          else
+                            -- Anchors/refs from lines before the diff are unaffected
+                            Just loc
+
+              -- anchors' =
+              --   state.appState.result.anchors
+              --     & Map.toList
+              --     & Maybe.mapMaybe
+              --       ( \(anchor, locs) ->
+              --           let locs' =
+              --                 locs
+              --                   & Maybe.mapMaybe
+              --                     ( \loc ->
+              --                         if loc.filepath /= filePath
+              --                           then
+              --                             -- Anchors/refs from other files are unaffected
+              --                             Just loc
+              --                           else
+              --                             -- Discard anchors/refs on lines that were modified
+              --                             if xLineToLspLine loc.lineNum >= oldLineStart && xLineToLspLine loc.lineNum <= oldLineEnd
+              --                               then Nothing
+              --                               else
+              --                                 -- Update the line numbers of anchors/refs that are after the diff
+              --                                 if xLineToLspLine loc.lineNum > oldLineEnd
+              --                                   then Just loc {X.lineNum = loc.lineNum + lineDelta}
+              --                                   else
+              --                                     -- Anchors/refs from lines before the diff are unaffected
+              --                                     Just loc
+              --                     )
+              --            in if null locs'
+              --                 then Nothing
+              --                 else Just (anchor, locs')
+              --       )
+              --     & Map.fromList
+              anchors0 =
+                state.appState.result.anchors
+                  & Map.toList
+                  & Maybe.mapMaybe
+                    ( \(anchor, locs) ->
+                        let locs' = locs & Maybe.mapMaybe updateLoc
+                         in if null locs' then Nothing else Just (anchor, locs')
+                    )
+                  & Map.fromList
+
+              refs1 =
+                state.appState.result.references
+                  & Map.toList
+                  & Maybe.mapMaybe
+                    ( \(anchor, locs) ->
+                        let locs' = locs & Maybe.mapMaybe updateLoc
+                         in if null locs' then Nothing else Just (anchor, locs')
+                    )
+                  & Map.fromList
+
+              -- Update the line numbers we need to reparse.
+              -- If they occur after this diff, they need to be shifted by the line delta, just like the anchors/refs.
+              linesToParse0 = state.linesToParse <&> (\lineNum -> if lineNum > fromIntegral @UInt @Int oldLineEnd then lineNum + lineDelta else lineNum)
+
+              -- We'll need to reparse all the lines that were modified by this diff.
+              -- NOTE: we don't parse them _straight_ away, because the VFS only has the state of the file after all the diffs have been applied,
+              -- so we need to wait until the end of the function to parse them, once we've processed all the diffs and updated our state accordingly.
+              linesToParse1 = linesToParse0 <> [fromIntegral @UInt @Int oldLineStart .. fromIntegral @UInt @Int oldLineStart + newLineCount - 1]
+           in state
+                { linesToParse = linesToParse1,
+                  appState =
+                    state.appState
+                      { result =
+                          state.appState.result
+                            { anchors = anchors0,
+                              references = refs1
+                            }
+                      }
+                }
+
+data ApplyChangesResult = ApplyChangesResult
+  { linesToParse :: [Int],
+    appState :: AppState
+  }
+
+-- Xreferee uses 1-based lines, but LSP uses 0-based lines.
+xLineToLspLine :: Int -> LSP.UInt
+xLineToLspLine xLine = fromIntegral @Int @LSP.UInt (xLine - 1)

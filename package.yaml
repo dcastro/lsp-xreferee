@@ -34,6 +34,8 @@ dependencies:
   - containers
   - directory
   - pretty-simple
+  - text-rope
+  - unliftio
 
 ghc-options:
   - -Weverything
