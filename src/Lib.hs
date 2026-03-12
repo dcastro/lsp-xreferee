@@ -86,11 +86,10 @@ type AppM = ReaderT (MVar AppState) (LspM Config)
 
 type AppLogger = LogAction AppM (WithSeverity Text)
 
-runAppM :: AppState -> LanguageContextEnv Config -> AppM a -> IO a
+runAppM :: MVar AppState -> LanguageContextEnv Config -> AppM a -> IO a
 runAppM appState env act = do
-  stateVar <- newMVar appState
   act
-    & flip runReaderT stateVar
+    & flip runReaderT appState
     & runLspT env
 
 getState :: AppM AppState
@@ -145,7 +144,7 @@ run = flip E.catches handlers $ do
             configSection = "demo",
             doInitialize = \env _initializeMsg -> do
               result <- initialize fileLogger
-              let appState = AppState {result}
+              appState <- newMVar AppState {result}
               pure (Right (env, appState)),
             staticHandlers = \_caps -> handle allLoggers,
             interpretHandler = \(env, appState) -> Iso (runAppM appState env) liftIO,
@@ -443,8 +442,9 @@ handleDidChange logger = \req -> do
   let diffs = req ^. LSP.params . LSP.contentChanges
   appStateVar <- ask
   Unlift.modifyMVar_ appStateVar \appState0 -> do
-    let ApplyChangesResult linesToParse appState1 = applyChanges appState0 filePath diffs
-        searchResult =
+    ApplyChangesResult linesToParse appState1 <- applyChanges logger appState0 filePath diffs
+
+    let searchResult =
           linesToParse
             <&> ( \lineNum ->
                     let line = rope & Rope.getLine (fromIntegral @Int @Word lineNum) & Rope.toText
@@ -463,24 +463,21 @@ handleDidChange logger = \req -> do
             & mconcat
         appState2 = appState1 {result = appState1.result <> searchResult}
 
-    logger <& ("--- did change state --- ") `WithSeverity` Debug
-    logger <& (LT.toStrict $ pShowNoColor appState2) `WithSeverity` Debug
-
     pure $ appState2
 
 -- | Calculates which lines we'll need to reparse after applying the given diffs.
 -- Removes anchors/refs that are on lines that were modified by the diffs,
 -- and updates the line numbers of anchors/refs that are located after the diffs.
-applyChanges :: AppState -> FilePath -> [LSP.TextDocumentContentChangeEvent] -> ApplyChangesResult
-applyChanges appState filePath diffs =
+applyChanges :: AppLogger -> AppState -> FilePath -> [LSP.TextDocumentContentChangeEvent] -> AppM ApplyChangesResult
+applyChanges _logger appState filePath diffs =
   let initialState = ApplyChangesResult {linesToParse = [], appState = appState}
-   in foldl' go initialState diffs
+   in foldM go initialState diffs
   where
-    go :: ApplyChangesResult -> LSP.TextDocumentContentChangeEvent -> ApplyChangesResult
-    go state diff =
+    go :: ApplyChangesResult -> LSP.TextDocumentContentChangeEvent -> AppM ApplyChangesResult
+    go result diff =
       case diff of
         LSP.TextDocumentContentChangeEvent (LSP.InR _wholeDoc) -> error "We should only get partial document updates, not whole document updates"
-        LSP.TextDocumentContentChangeEvent (LSP.InL diff) ->
+        LSP.TextDocumentContentChangeEvent (LSP.InL diff) -> do
           let oldLineStart = diff ^. LSP.range . LSP.start . LSP.line
               oldLineEnd = diff ^. LSP.range . LSP.end . LSP.line
               oldLineCount = oldLineEnd - oldLineStart + 1
@@ -489,93 +486,70 @@ applyChanges appState filePath diffs =
               -- How many lines were added (or removed) by this diff.
               lineDelta = newLineCount - fromIntegral @UInt @Int oldLineCount
 
-              updateLoc :: X.LabelLoc -> Maybe X.LabelLoc
+              updateLoc :: X.LabelLoc -> AppM (Maybe X.LabelLoc)
               updateLoc loc =
                 if loc.filepath /= filePath
                   then
                     -- Anchors/refs from other files are unaffected
-                    Just loc
+                    pure $ Just loc
                   else
                     -- Discard anchors/refs on lines that were modified
                     if xLineToLspLine loc.lineNum >= oldLineStart && xLineToLspLine loc.lineNum <= oldLineEnd
-                      then Nothing
+                      then do
+                        pure Nothing
                       else
                         -- Update the line numbers of anchors/refs that are after the diff
                         if xLineToLspLine loc.lineNum > oldLineEnd
-                          then Just loc {X.lineNum = loc.lineNum + lineDelta}
+                          then do
+                            pure $
+                              Just loc {X.lineNum = loc.lineNum + lineDelta}
                           else
                             -- Anchors/refs from lines before the diff are unaffected
-                            Just loc
-
-              -- anchors' =
-              --   state.appState.result.anchors
-              --     & Map.toList
-              --     & Maybe.mapMaybe
-              --       ( \(anchor, locs) ->
-              --           let locs' =
-              --                 locs
-              --                   & Maybe.mapMaybe
-              --                     ( \loc ->
-              --                         if loc.filepath /= filePath
-              --                           then
-              --                             -- Anchors/refs from other files are unaffected
-              --                             Just loc
-              --                           else
-              --                             -- Discard anchors/refs on lines that were modified
-              --                             if xLineToLspLine loc.lineNum >= oldLineStart && xLineToLspLine loc.lineNum <= oldLineEnd
-              --                               then Nothing
-              --                               else
-              --                                 -- Update the line numbers of anchors/refs that are after the diff
-              --                                 if xLineToLspLine loc.lineNum > oldLineEnd
-              --                                   then Just loc {X.lineNum = loc.lineNum + lineDelta}
-              --                                   else
-              --                                     -- Anchors/refs from lines before the diff are unaffected
-              --                                     Just loc
-              --                     )
-              --            in if null locs'
-              --                 then Nothing
-              --                 else Just (anchor, locs')
-              --       )
-              --     & Map.fromList
-              anchors0 =
-                state.appState.result.anchors
-                  & Map.toList
-                  & Maybe.mapMaybe
-                    ( \(anchor, locs) ->
-                        let locs' = locs & Maybe.mapMaybe updateLoc
-                         in if null locs' then Nothing else Just (anchor, locs')
-                    )
-                  & Map.fromList
-
-              refs1 =
-                state.appState.result.references
-                  & Map.toList
-                  & Maybe.mapMaybe
-                    ( \(anchor, locs) ->
-                        let locs' = locs & Maybe.mapMaybe updateLoc
-                         in if null locs' then Nothing else Just (anchor, locs')
-                    )
-                  & Map.fromList
+                            pure $ Just loc
 
               -- Update the line numbers we need to reparse.
               -- If they occur after this diff, they need to be shifted by the line delta, just like the anchors/refs.
-              linesToParse0 = state.linesToParse <&> (\lineNum -> if lineNum > fromIntegral @UInt @Int oldLineEnd then lineNum + lineDelta else lineNum)
+              linesToParse0 = result.linesToParse <&> (\lineNum -> if lineNum > fromIntegral @UInt @Int oldLineEnd then lineNum + lineDelta else lineNum)
 
               -- We'll need to reparse all the lines that were modified by this diff.
               -- NOTE: we don't parse them _straight_ away, because the VFS only has the state of the file after all the diffs have been applied,
               -- so we need to wait until the end of the function to parse them, once we've processed all the diffs and updated our state accordingly.
               linesToParse1 = linesToParse0 <> [fromIntegral @UInt @Int oldLineStart .. fromIntegral @UInt @Int oldLineStart + newLineCount - 1]
-           in state
-                { linesToParse = linesToParse1,
-                  appState =
-                    state.appState
-                      { result =
-                          state.appState.result
-                            { anchors = anchors0,
-                              references = refs1
-                            }
-                      }
-                }
+
+          anchors0 <-
+            result.appState.result.anchors
+              & Map.toList
+              & traverse
+                ( \(anchor, locs) -> do
+                    locs' <- locs & traverse updateLoc <&> Maybe.catMaybes
+                    pure $ if null locs' then Nothing else Just (anchor, locs')
+                )
+              <&> Maybe.catMaybes
+              <&> Map.fromList
+
+          refs0 <-
+            result.appState.result.references
+              & Map.toList
+              & traverse
+                ( \(ref, locs) -> do
+                    locs' <- locs & traverse updateLoc <&> Maybe.catMaybes
+                    pure $ if null locs' then Nothing else Just (ref, locs')
+                )
+              <&> Maybe.catMaybes
+              <&> Map.fromList
+
+          pure $
+            result
+              { linesToParse = linesToParse1,
+                appState =
+                  result.appState
+                    { result =
+                        result.appState.result
+                          { anchors = anchors0,
+                            references = refs0
+                          }
+                    }
+              }
 
 data ApplyChangesResult = ApplyChangesResult
   { linesToParse :: [Int],
