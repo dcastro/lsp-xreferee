@@ -62,6 +62,8 @@ default-extensions:
   - OverloadedRecordDot
   - NoFieldSelectors
   - BlockArguments
+  - DeriveAnyClass
+  - OverloadedStrings
 
 library:
   source-dirs: src

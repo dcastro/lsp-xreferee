@@ -38,6 +38,8 @@ library
       OverloadedRecordDot
       NoFieldSelectors
       BlockArguments
+      DeriveAnyClass
+      OverloadedStrings
   ghc-options: -Weverything -Wno-name-shadowing -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missing-export-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-prepositive-qualified-module -Wno-missing-safe-haskell-mode -Wno-unused-packages -Wno-missing-kind-signatures -Wno-missing-role-annotations
   build-depends:
       aeson
@@ -72,6 +74,8 @@ executable lsp-xreferee-exe
       OverloadedRecordDot
       NoFieldSelectors
       BlockArguments
+      DeriveAnyClass
+      OverloadedStrings
   ghc-options: -Weverything -Wno-name-shadowing -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missing-export-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-prepositive-qualified-module -Wno-missing-safe-haskell-mode -Wno-unused-packages -Wno-missing-kind-signatures -Wno-missing-role-annotations -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
@@ -108,6 +112,8 @@ test-suite lsp-xreferee-test
       OverloadedRecordDot
       NoFieldSelectors
       BlockArguments
+      DeriveAnyClass
+      OverloadedStrings
   ghc-options: -Weverything -Wno-name-shadowing -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missing-export-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-prepositive-qualified-module -Wno-missing-safe-haskell-mode -Wno-unused-packages -Wno-missing-kind-signatures -Wno-missing-role-annotations -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
