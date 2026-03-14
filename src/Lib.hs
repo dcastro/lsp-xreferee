@@ -9,10 +9,11 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Reader (ReaderT (runReaderT), ask)
 import Data.Aeson qualified as J
-import Data.Int (Int32)
 import Data.List qualified as List
 import Data.Map qualified as Map
 import Data.Maybe qualified as Maybe
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as LT
@@ -32,6 +33,7 @@ import System.Exit
 import System.IO
 import Text.Pretty.Simple (pShowNoColor)
 import UnliftIO.MVar qualified as Unlift
+import Unsafe.Coerce qualified as Unsafe
 import XReferee.SearchResult (SearchResult (..))
 import XReferee.SearchResult qualified as X
 
@@ -48,7 +50,9 @@ searchOpts =
     }
 
 data AppState = AppState
-  { result :: SearchResult
+  { result :: SearchResult,
+    -- | Keep track of which files have warnings/errors.
+    filesWithDiagnostics :: Set FilePath
   }
   deriving stock (Show)
 
@@ -66,6 +70,11 @@ getState :: AppM AppState
 getState = do
   stateVar <- ask
   liftIO $ readMVar stateVar
+
+modifyState :: (AppState -> AppM AppState) -> AppM ()
+modifyState act = do
+  stateVar <- ask
+  Unlift.modifyMVar_ stateVar act
 
 -- ---------------------------------------------------------------------
 
@@ -113,8 +122,7 @@ run = flip E.catches handlers $ do
             -- TODO: config section
             configSection = "lsp-xreferee",
             doInitialize = \env _initializeMsg -> do
-              result <- initialize fileLogger
-              appState <- newMVar AppState {result}
+              appState <- initialize fileLogger >>= newMVar
               pure (Right (env, appState)),
             staticHandlers = \_caps -> handle allLoggers,
             interpretHandler = \(env, appState) -> Iso (runAppM appState env) liftIO,
@@ -137,11 +145,11 @@ run = flip E.catches handlers $ do
     ioExcept (e :: E.IOException) = print e >> return 1
     someExcept (e :: E.SomeException) = print e >> return 1
 
-initialize :: LogAction IO (WithSeverity Text) -> IO SearchResult
+initialize :: LogAction IO (WithSeverity Text) -> IO AppState
 initialize logger = do
   result <- liftIO (X.findRefsFromGit searchOpts)
   logger <& ("Search results: " <> (T.pack $ show result)) `WithSeverity` Info
-  pure result
+  pure AppState {result, filesWithDiagnostics = Set.empty}
 
 -- ---------------------------------------------------------------------
 
@@ -166,26 +174,6 @@ lspOptions =
 
 -- ---------------------------------------------------------------------
 
--- | Analyze the file and send any diagnostics to the client in a
--- "textDocument/publishDiagnostics" notification
-sendDiagnostics :: LSP.NormalizedUri -> Maybe Int32 -> AppM ()
-sendDiagnostics fileUri version = do
-  let diags =
-        [ LSP.Diagnostic
-            (LSP.Range (LSP.Position 0 1) (LSP.Position 0 5))
-            (Just LSP.DiagnosticSeverity_Warning) -- severity
-            Nothing -- code
-            Nothing
-            (Just "lsp-hello") -- source
-            "Example diagnostic message"
-            Nothing -- tags
-            (Just [])
-            Nothing
-        ]
-  publishDiagnostics 100 fileUri version (partitionBySource diags)
-
--- ---------------------------------------------------------------------
-
 logReq :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TRequestMessage a -> AppM ()
 logReq logger msg = do
   logger <& (LT.toStrict $ pShowNoColor msg) `WithSeverity` Debug
@@ -199,12 +187,12 @@ handle :: AppLogger -> Handlers AppM
 handle logger =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
-        pure (),
+        modifyState $ sendDiagnostics logger,
       notificationHandler LSP.SMethod_TextDocumentDidOpen $ \msg -> do
         let doc = msg ^. LSP.params . LSP.textDocument . LSP.uri
             fileName = LSP.uriToFilePath doc
         logger <& ("Processing DidOpenTextDocument for: " <> T.pack (show fileName)) `WithSeverity` Info
-        sendDiagnostics (LSP.toNormalizedUri doc) (Just 0),
+        modifyState $ sendDiagnostics logger,
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \msg -> do
         cfg <- getConfig
         logger L.<& ("Configuration changed: " <> T.pack (show (msg, cfg))) `WithSeverity` Info
@@ -305,8 +293,8 @@ handleDidChange logger = \req -> do
   let rope = vf ^. VFS.file_text
 
   let diffs = req ^. LSP.params . LSP.contentChanges
-  appStateVar <- ask
-  Unlift.modifyMVar_ appStateVar \appState0 -> do
+
+  modifyState \appState0 -> do
     ApplyChangesResult linesToParse appState1 <- applyChanges logger appState0 filePath diffs
 
     let searchResult =
@@ -328,7 +316,10 @@ handleDidChange logger = \req -> do
             & mconcat
         appState2 = appState1 {result = appState1.result <> searchResult}
 
-    pure $ appState2
+    -- If the app state didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
+    if appState0.result == appState2.result
+      then pure appState2
+      else sendDiagnostics logger appState2
 
 -- | Calculates which lines we'll need to reparse after applying the given diffs.
 -- Removes anchors/refs that are on lines that were modified by the diffs,
@@ -421,6 +412,80 @@ data ApplyChangesResult = ApplyChangesResult
     appState :: AppState
   }
 
+-- | A label that is shown next to each warning/error.
+diagnosticsSource :: Maybe Text
+diagnosticsSource = Just "xreferee"
+
+-- | Analyze the file and send any diagnostics to the client in a
+-- "textDocument/publishDiagnostics" notification
+sendDiagnostics :: AppLogger -> AppState -> AppM AppState
+sendDiagnostics logger state = do
+  -- Map keys have role "nominal", so we can't coerce between Anchors and References.
+  -- Even though they are both newtypes of `Text`, it's not safe to coerce a map of Anchors into a map of References because
+  -- they may have different implementations of `Ord` and thus be ordered differently in the map.
+  -- However, we do know that `Anchor` and `Reference` have the same `Ord` implementation,
+  -- so we use `unsafeCoerce`.
+  let unusedAnchors = Map.difference state.result.anchors (Unsafe.unsafeCoerce state.result.references)
+  let brokenRefs = Map.difference state.result.references (Unsafe.unsafeCoerce state.result.anchors)
+  let duplicateAnchors = Map.filter (\locs -> length locs > 1) state.result.anchors
+
+  let unusedAnchorsDiagnostics = do
+        (_, anchorLocs) <- Map.toList unusedAnchors
+        anchorLoc <- anchorLocs
+        pure
+          ( anchorLoc.filepath,
+            [ LSP.Diagnostic
+                { _range = xLocToLspRange anchorLoc,
+                  _severity = Just LSP.DiagnosticSeverity_Warning,
+                  _code = Nothing,
+                  _codeDescription = Nothing,
+                  _source = diagnosticsSource,
+                  _message = "Unused anchor.",
+                  _tags = Just ([LSP.DiagnosticTag_Unnecessary]),
+                  _relatedInformation = Nothing,
+                  _data_ = Nothing
+                }
+            ]
+          )
+
+  let brokenRefsDiagnostics = do
+        (_, refLocs) <- Map.toList brokenRefs
+        refLoc <- refLocs
+        pure
+          ( refLoc.filepath,
+            [ LSP.Diagnostic
+                { _range = xLocToLspRange refLoc,
+                  _severity = Just LSP.DiagnosticSeverity_Error,
+                  _code = Nothing,
+                  _codeDescription = Nothing,
+                  _source = diagnosticsSource,
+                  _message = "Broken reference.",
+                  _tags = Nothing,
+                  _relatedInformation = Nothing,
+                  _data_ = Nothing
+                }
+            ]
+          )
+
+  -- TODO: duplicate anchors
+
+  -- Publish all diagnostics
+  let allDiagnosticsByFile = Map.fromListWith (<>) $ unusedAnchorsDiagnostics <> brokenRefsDiagnostics
+
+  forM_ (Map.toList allDiagnosticsByFile) $ \(filePath, diagnostics) -> do
+    uri <- liftIO $ Dir.makeAbsolute filePath <&> LSP.filePathToUri
+    publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (partitionBySource diagnostics)
+
+  -- Clear diagnostics for files that had diagnostics before but don't have any now.
+  let filesWithDiagnosticsNow = Map.keysSet allDiagnosticsByFile
+  let filesWithDiagnosticsBefore = state.filesWithDiagnostics
+  forM_ (Set.difference filesWithDiagnosticsBefore filesWithDiagnosticsNow) \filePath -> do
+    uri <- liftIO $ Dir.makeAbsolute filePath <&> LSP.filePathToUri
+    logger <& ("Clearing diagnostics for file: " <> (T.pack $ show uri)) `WithSeverity` Info
+    publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (Map.singleton diagnosticsSource mempty)
+
+  pure state {filesWithDiagnostics = filesWithDiagnosticsNow}
+
 -- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
 xToLsp :: Int -> LSP.UInt
 xToLsp xLine = fromIntegral @Int @LSP.UInt (xLine - 1)
@@ -428,3 +493,28 @@ xToLsp xLine = fromIntegral @Int @LSP.UInt (xLine - 1)
 -- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
 lspToX :: LSP.UInt -> Int
 lspToX xLine = fromIntegral @LSP.UInt @Int (xLine + 1)
+
+xLocToLspRange :: X.LabelLoc -> LSP.Range
+xLocToLspRange loc =
+  LSP.Range
+    { _start =
+        LSP.Position
+          { _line = xToLsp loc.lineNum,
+            _character = xToLsp loc.columnRange.start
+          },
+      _end =
+        LSP.Position
+          { _line = xToLsp loc.lineNum,
+            _character = xToLsp loc.columnRange.end
+          }
+    }
+
+xLocToLspLocation :: (MonadIO m) => X.LabelLoc -> m LSP.Location
+xLocToLspLocation loc = do
+  uri <- liftIO $ Dir.makeAbsolute loc.filepath <&> LSP.filePathToUri
+
+  pure $
+    LSP.Location
+      { _uri = uri,
+        _range = xLocToLspRange loc
+      }
