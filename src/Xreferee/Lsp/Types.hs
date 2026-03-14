@@ -3,11 +3,17 @@ module Xreferee.Lsp.Types where
 import Control.Lens hiding (Iso)
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Language.LSP.Protocol.Types (UInt)
 import Language.LSP.Protocol.Types qualified as Lsp
 import System.FilePath ((</>))
 import XReferee.SearchResult (SearchResult (..))
 import XReferee.SearchResult qualified as X
 
+-- | This is similar to `XReferee.SearchResult`, except:
+--    * We use `file://` URIs with absolute paths instead of relative file paths
+--    * 0-based line and column numbers instead of 1-based.
+--
+-- This makes it easier to work with the LSP interface.
 data Symbols = Symbols
   { anchors :: Map X.Anchor [LabelLoc],
     references :: Map X.Reference [LabelLoc]
@@ -26,8 +32,14 @@ instance Monoid Symbols where
 
 data LabelLoc = LabelLoc
   { uri :: Lsp.Uri,
-    lineNum :: Int,
-    columnRange :: X.ColumnRange
+    lineNum :: UInt,
+    columnRange :: ColumnRange
+  }
+  deriving stock (Show, Eq, Ord)
+
+data ColumnRange = ColumnRange
+  { start :: UInt,
+    end :: UInt
   }
   deriving stock (Show, Eq, Ord)
 
@@ -42,6 +54,17 @@ mkSymbols workspaceDir sr =
     mkLabelLoc l =
       LabelLoc
         { uri = Lsp.filePathToUri $ workspaceDir </> l.filepath,
-          lineNum = l.lineNum,
-          columnRange = l.columnRange
+          lineNum = xToLsp l.lineNum,
+          columnRange = mkColumnRange l.columnRange
         }
+
+mkColumnRange :: X.ColumnRange -> ColumnRange
+mkColumnRange cr =
+  ColumnRange
+    { start = xToLsp cr.start,
+      end = xToLsp cr.end
+    }
+
+-- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
+xToLsp :: Int -> UInt
+xToLsp xLine = fromIntegral @Int @UInt (xLine - 1)

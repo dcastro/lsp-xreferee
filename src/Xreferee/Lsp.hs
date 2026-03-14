@@ -209,9 +209,9 @@ handleDefinition logger = \req responder -> do
                   List.find
                     ( \loc ->
                         loc.uri == reqUri
-                          && xToLsp loc.lineNum == reqLine
-                          && xToLsp loc.columnRange.start <= reqColumn
-                          && reqColumn <= xToLsp loc.columnRange.end
+                          && loc.lineNum == reqLine
+                          && loc.columnRange.start <= reqColumn
+                          && reqColumn <= loc.columnRange.end
                     )
                     locs
                 Just (ref, refLoc)
@@ -233,8 +233,8 @@ handleDefinition logger = \req responder -> do
           locs <- forM anchorLocs \anchorLoc -> do
             let refRange =
                   LSP.Range
-                    (LSP.Position reqLine (xToLsp refLoc.columnRange.start))
-                    (LSP.Position reqLine (xToLsp refLoc.columnRange.end + 1))
+                    (LSP.Position reqLine refLoc.columnRange.start)
+                    (LSP.Position reqLine (refLoc.columnRange.end + 1))
             let anchorRange = xLocToLspRange anchorLoc
             pure $
               LSP.DefinitionLink
@@ -262,13 +262,13 @@ handleDidChange logger = \req -> do
     let newSymbols =
           linesToParse
             <&> ( \lineNum ->
-                    let line = rope & Rope.getLine (fromIntegral @Int @Word lineNum) & Rope.toText
+                    let line = rope & Rope.getLine (fromIntegral @UInt @Word lineNum) & Rope.toText
                         (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
                         mkLoc columnRange =
                           LabelLoc
                             { uri,
-                              lineNum = lspToX $ fromIntegral lineNum,
-                              columnRange
+                              lineNum,
+                              columnRange = Types.mkColumnRange columnRange
                             }
                      in Symbols
                           { anchors = Map.fromListWith (<>) [(anchor, [mkLoc range]) | (anchor, range) <- anchors],
@@ -299,10 +299,10 @@ applyChanges _logger appState uri diffs =
           let oldLineStart = diff ^. LSP.range . LSP.start . LSP.line
               oldLineEnd = diff ^. LSP.range . LSP.end . LSP.line
               oldLineCount = oldLineEnd - oldLineStart + 1
-              newLineCount = diff ^. LSP.text . to (T.count "\n") + 1
+              newLineCount = fromIntegral @Int @UInt $ diff ^. LSP.text . to (T.count "\n") + 1
 
               -- How many lines were added (or removed) by this diff.
-              lineDelta = newLineCount - fromIntegral @UInt @Int oldLineCount
+              lineDelta = newLineCount - oldLineCount
 
               updateLoc :: LabelLoc -> AppM (Maybe LabelLoc)
               updateLoc loc =
@@ -312,12 +312,12 @@ applyChanges _logger appState uri diffs =
                     pure $ Just loc
                   else
                     -- Discard anchors/refs on lines that were modified
-                    if xToLsp loc.lineNum >= oldLineStart && xToLsp loc.lineNum <= oldLineEnd
+                    if loc.lineNum >= oldLineStart && loc.lineNum <= oldLineEnd
                       then do
                         pure Nothing
                       else
                         -- Update the line numbers of anchors/refs that are after the diff
-                        if xToLsp loc.lineNum > oldLineEnd
+                        if loc.lineNum > oldLineEnd
                           then do
                             pure $
                               Just loc {lineNum = loc.lineNum + lineDelta}
@@ -327,12 +327,12 @@ applyChanges _logger appState uri diffs =
 
               -- Update the line numbers we need to reparse.
               -- If they occur after this diff, they need to be shifted by the line delta, just like the anchors/refs.
-              linesToParse0 = result.linesToParse <&> (\lineNum -> if lineNum > fromIntegral @UInt @Int oldLineEnd then lineNum + lineDelta else lineNum)
+              linesToParse0 = result.linesToParse <&> (\lineNum -> if lineNum > oldLineEnd then lineNum + lineDelta else lineNum)
 
               -- We'll need to reparse all the lines that were modified by this diff.
               -- NOTE: we don't parse them _straight_ away, because the VFS only has the state of the file after all the diffs have been applied,
               -- so we need to wait until the end of the function to parse them, once we've processed all the diffs and updated our state accordingly.
-              linesToParse1 = linesToParse0 <> [fromIntegral @UInt @Int oldLineStart .. fromIntegral @UInt @Int oldLineStart + newLineCount - 1]
+              linesToParse1 = linesToParse0 <> [oldLineStart .. oldLineStart + newLineCount - 1]
 
           anchors0 <-
             result.appState.symbols.anchors
@@ -370,7 +370,7 @@ applyChanges _logger appState uri diffs =
               }
 
 data ApplyChangesResult = ApplyChangesResult
-  { linesToParse :: [Int],
+  { linesToParse :: [UInt],
     appState :: AppState
   }
 
@@ -469,26 +469,18 @@ sendDiagnostics _logger state = do
 
   pure state {filesWithDiagnostics = filesWithDiagnosticsNow}
 
--- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
-xToLsp :: Int -> LSP.UInt
-xToLsp xLine = fromIntegral @Int @LSP.UInt (xLine - 1)
-
--- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
-lspToX :: LSP.UInt -> Int
-lspToX xLine = fromIntegral @LSP.UInt @Int (xLine + 1)
-
 xLocToLspRange :: LabelLoc -> LSP.Range
 xLocToLspRange loc =
   LSP.Range
     { _start =
         LSP.Position
-          { _line = xToLsp loc.lineNum,
-            _character = xToLsp loc.columnRange.start
+          { _line = loc.lineNum,
+            _character = loc.columnRange.start
           },
       _end =
         LSP.Position
-          { _line = xToLsp loc.lineNum,
-            _character = xToLsp loc.columnRange.end + 1
+          { _line = loc.lineNum,
+            _character = loc.columnRange.end + 1
           }
     }
 
