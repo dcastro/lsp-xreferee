@@ -50,7 +50,7 @@ searchOpts =
     }
 
 data AppState = AppState
-  { result :: SearchResult,
+  { symbols :: SearchResult,
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set FilePath
   }
@@ -147,9 +147,9 @@ run = flip E.catches handlers $ do
 
 initialize :: LogAction IO (WithSeverity Text) -> IO AppState
 initialize logger = do
-  result <- liftIO (X.findRefsFromGit searchOpts)
-  logger <& ("Search results: " <> (T.pack $ show result)) `WithSeverity` Info
-  pure AppState {result, filesWithDiagnostics = Set.empty}
+  symbols <- liftIO (X.findRefsFromGit searchOpts)
+  logger <& ("Symbols: " <> (T.pack $ show symbols)) `WithSeverity` Debug
+  pure AppState {symbols, filesWithDiagnostics = Set.empty}
 
 -- ---------------------------------------------------------------------
 
@@ -232,7 +232,7 @@ handleDefinition logger = \req responder -> do
 
   state <- getState
   let refMatch =
-        state.result.references
+        state.symbols.references
           & Map.toList
           & Maybe.mapMaybe
             ( \(ref, locs) -> do
@@ -255,7 +255,7 @@ handleDefinition logger = \req responder -> do
     Just (ref, refLoc) -> do
       -- Find the corresponding anchor(s)
       let anchor = ref & X.toLabel & X.fromLabel @X.Anchor
-      let anchorMatch = state.result.anchors & Map.lookup anchor
+      let anchorMatch = state.symbols.anchors & Map.lookup anchor
       case anchorMatch of
         Nothing ->
           -- We found the reference, but there is no matching anchor.
@@ -297,7 +297,7 @@ handleDidChange logger = \req -> do
   modifyState \appState0 -> do
     ApplyChangesResult linesToParse appState1 <- applyChanges logger appState0 filePath diffs
 
-    let searchResult =
+    let newSymbols =
           linesToParse
             <&> ( \lineNum ->
                     let line = rope & Rope.getLine (fromIntegral @Int @Word lineNum) & Rope.toText
@@ -314,10 +314,10 @@ handleDidChange logger = \req -> do
                           }
                 )
             & mconcat
-        appState2 = appState1 {result = appState1.result <> searchResult}
+        appState2 = appState1 {symbols = appState1.symbols <> newSymbols}
 
-    -- If the app state didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
-    if appState0.result == appState2.result
+    -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
+    if appState0.symbols == appState2.symbols
       then pure appState2
       else sendDiagnostics logger appState2
 
@@ -373,7 +373,7 @@ applyChanges _logger appState filePath diffs =
               linesToParse1 = linesToParse0 <> [fromIntegral @UInt @Int oldLineStart .. fromIntegral @UInt @Int oldLineStart + newLineCount - 1]
 
           anchors0 <-
-            result.appState.result.anchors
+            result.appState.symbols.anchors
               & Map.toList
               & traverse
                 ( \(anchor, locs) -> do
@@ -384,7 +384,7 @@ applyChanges _logger appState filePath diffs =
               <&> Map.fromList
 
           refs0 <-
-            result.appState.result.references
+            result.appState.symbols.references
               & Map.toList
               & traverse
                 ( \(ref, locs) -> do
@@ -399,8 +399,8 @@ applyChanges _logger appState filePath diffs =
               { linesToParse = linesToParse1,
                 appState =
                   result.appState
-                    { result =
-                        result.appState.result
+                    { symbols =
+                        result.appState.symbols
                           { anchors = anchors0,
                             references = refs0
                           }
@@ -425,9 +425,9 @@ sendDiagnostics logger state = do
   -- they may have different implementations of `Ord` and thus be ordered differently in the map.
   -- However, we do know that `Anchor` and `Reference` have the same `Ord` implementation,
   -- so we use `unsafeCoerce`.
-  let unusedAnchors = Map.difference state.result.anchors (Unsafe.unsafeCoerce state.result.references)
-  let brokenRefs = Map.difference state.result.references (Unsafe.unsafeCoerce state.result.anchors)
-  let duplicateAnchors = Map.filter (\locs -> length locs > 1) state.result.anchors
+  let unusedAnchors = Map.difference state.symbols.anchors (Unsafe.unsafeCoerce state.symbols.references)
+  let brokenRefs = Map.difference state.symbols.references (Unsafe.unsafeCoerce state.symbols.anchors)
+  let duplicateAnchors = Map.filter (\locs -> length locs > 1) state.symbols.anchors
 
   let unusedAnchorsDiagnostics = do
         (_, anchorLocs) <- Map.toList unusedAnchors
