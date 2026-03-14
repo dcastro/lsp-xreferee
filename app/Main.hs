@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Lib qualified
+import Xreferee.Lsp qualified as Lsp
 
 main :: IO ()
-main = Lib.main
+main = Lsp.main

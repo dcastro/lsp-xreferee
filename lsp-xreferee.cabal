@@ -25,7 +25,8 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Xreferee.Lsp
+      Xreferee.Lsp.AppM
   other-modules:
       Paths_lsp_xreferee
   autogen-modules:

@@ -1,4 +1,4 @@
-module Lib where
+module Xreferee.Lsp where
 
 import Colog.Core (LogAction (..), Severity (..), WithSeverity (..), (<&))
 import Colog.Core qualified as L
@@ -7,18 +7,15 @@ import Control.Exception qualified as E
 import Control.Lens hiding (Iso)
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Reader (ReaderT (runReaderT), ask)
 import Data.Aeson qualified as J
 import Data.List qualified as List
 import Data.Map qualified as Map
 import Data.Maybe qualified as Maybe
-import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as LT
 import Data.Text.Mixed.Rope qualified as Rope
-import GHC.Generics (Generic)
 import Language.LSP.Diagnostics
 import Language.LSP.Logging (defaultClientLogger)
 import Language.LSP.Protocol.Lens qualified as LSP
@@ -32,10 +29,10 @@ import System.Directory qualified as Dir
 import System.Exit
 import System.IO
 import Text.Pretty.Simple (pShowNoColor)
-import UnliftIO.MVar qualified as Unlift
 import Unsafe.Coerce qualified as Unsafe
 import XReferee.SearchResult (SearchResult (..))
 import XReferee.SearchResult qualified as X
+import Xreferee.Lsp.AppM
 
 main :: IO ()
 main = do
@@ -48,39 +45,6 @@ searchOpts =
   X.SearchOpts
     { ignores = []
     }
-
-data AppState = AppState
-  { symbols :: SearchResult,
-    -- | Keep track of which files have warnings/errors.
-    filesWithDiagnostics :: Set FilePath
-  }
-  deriving stock (Show)
-
-type AppM = ReaderT (MVar AppState) (LspM Config)
-
-type AppLogger = LogAction AppM (WithSeverity Text)
-
-runAppM :: MVar AppState -> LanguageContextEnv Config -> AppM a -> IO a
-runAppM appState env act = do
-  act
-    & flip runReaderT appState
-    & runLspT env
-
-getState :: AppM AppState
-getState = do
-  stateVar <- ask
-  liftIO $ readMVar stateVar
-
-modifyState :: (AppState -> AppM AppState) -> AppM ()
-modifyState act = do
-  stateVar <- ask
-  Unlift.modifyMVar_ stateVar act
-
--- ---------------------------------------------------------------------
-
-data Config = Config {fooTheBar :: Bool, wibbleFactor :: Int}
-  deriving stock (Generic, Show)
-  deriving anyclass (J.ToJSON, J.FromJSON)
 
 run :: IO Int
 run = flip E.catches handlers $ do
