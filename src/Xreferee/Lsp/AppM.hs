@@ -11,7 +11,7 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Language.LSP.Server as LSP
 import UnliftIO.MVar qualified as Unlift
-import XReferee.SearchResult (SearchResult (..))
+import Xreferee.Lsp.Types (Symbols)
 
 type AppM = ReaderT (MVar AppState) (LspM Config)
 
@@ -46,7 +46,7 @@ data Config = Config {fooTheBar :: Bool, wibbleFactor :: Int}
 ----------------------------------------------------------------------------
 
 data AppState = AppState
-  { symbols :: SearchResult,
+  { symbols :: Symbols,
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set FilePath
   }

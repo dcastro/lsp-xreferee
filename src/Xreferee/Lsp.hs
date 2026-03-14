@@ -33,6 +33,8 @@ import Unsafe.Coerce qualified as Unsafe
 import XReferee.SearchResult (SearchResult (..))
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Types (LabelLoc (..))
+import Xreferee.Lsp.Types qualified as Types
 
 main :: IO ()
 main = do
@@ -111,7 +113,8 @@ run = flip E.catches handlers $ do
 
 initialize :: LogAction IO (WithSeverity Text) -> IO AppState
 initialize logger = do
-  symbols <- liftIO (X.findRefsFromGit searchOpts)
+  searchResult <- liftIO $ X.findRefsFromGit searchOpts
+  let symbols = Types.mkSymbols searchResult
   logger <& ("Symbols: " <> (T.pack $ show symbols)) `WithSeverity` Debug
   pure AppState {symbols, filesWithDiagnostics = Set.empty}
 
@@ -262,22 +265,23 @@ handleDidChange logger = \req -> do
     ApplyChangesResult linesToParse appState1 <- applyChanges logger appState0 filePath diffs
 
     let newSymbols =
-          linesToParse
-            <&> ( \lineNum ->
-                    let line = rope & Rope.getLine (fromIntegral @Int @Word lineNum) & Rope.toText
-                        (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
-                        mkLoc columnRange =
-                          X.LabelLoc
-                            { filepath = filePath,
-                              lineNum = lspToX $ fromIntegral lineNum,
-                              columnRange
+          Types.mkSymbols $
+            linesToParse
+              <&> ( \lineNum ->
+                      let line = rope & Rope.getLine (fromIntegral @Int @Word lineNum) & Rope.toText
+                          (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
+                          mkLoc columnRange =
+                            X.LabelLoc
+                              { filepath = filePath,
+                                lineNum = lspToX $ fromIntegral lineNum,
+                                columnRange
+                              }
+                       in SearchResult
+                            { anchors = Map.fromListWith (<>) [(anchor, [mkLoc range]) | (anchor, range) <- anchors],
+                              references = Map.fromListWith (<>) [(ref, [mkLoc range]) | (ref, range) <- refs]
                             }
-                     in SearchResult
-                          { anchors = Map.fromListWith (<>) [(anchor, [mkLoc range]) | (anchor, range) <- anchors],
-                            references = Map.fromListWith (<>) [(ref, [mkLoc range]) | (ref, range) <- refs]
-                          }
-                )
-            & mconcat
+                  )
+              & mconcat
         appState2 = appState1 {symbols = appState1.symbols <> newSymbols}
 
     -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
@@ -306,7 +310,7 @@ applyChanges _logger appState filePath diffs =
               -- How many lines were added (or removed) by this diff.
               lineDelta = newLineCount - fromIntegral @UInt @Int oldLineCount
 
-              updateLoc :: X.LabelLoc -> AppM (Maybe X.LabelLoc)
+              updateLoc :: LabelLoc -> AppM (Maybe LabelLoc)
               updateLoc loc =
                 if loc.filepath /= filePath
                   then
@@ -322,7 +326,7 @@ applyChanges _logger appState filePath diffs =
                         if xToLsp loc.lineNum > oldLineEnd
                           then do
                             pure $
-                              Just loc {X.lineNum = loc.lineNum + lineDelta}
+                              Just loc {lineNum = loc.lineNum + lineDelta}
                           else
                             -- Anchors/refs from lines before the diff are unaffected
                             pure $ Just loc
@@ -365,8 +369,8 @@ applyChanges _logger appState filePath diffs =
                   result.appState
                     { symbols =
                         result.appState.symbols
-                          { anchors = anchors0,
-                            references = refs0
+                          { Types.anchors = anchors0,
+                            Types.references = refs0
                           }
                     }
               }
@@ -458,7 +462,7 @@ xToLsp xLine = fromIntegral @Int @LSP.UInt (xLine - 1)
 lspToX :: LSP.UInt -> Int
 lspToX xLine = fromIntegral @LSP.UInt @Int (xLine + 1)
 
-xLocToLspRange :: X.LabelLoc -> LSP.Range
+xLocToLspRange :: LabelLoc -> LSP.Range
 xLocToLspRange loc =
   LSP.Range
     { _start =
@@ -473,7 +477,7 @@ xLocToLspRange loc =
           }
     }
 
-xLocToLspLocation :: (MonadIO m) => X.LabelLoc -> m LSP.Location
+xLocToLspLocation :: (MonadIO m) => LabelLoc -> m LSP.Location
 xLocToLspLocation loc = do
   uri <- liftIO $ Dir.makeAbsolute loc.filepath <&> LSP.filePathToUri
 

@@ -27,6 +27,7 @@ library
   exposed-modules:
       Xreferee.Lsp
       Xreferee.Lsp.AppM
+      Xreferee.Lsp.Types
   other-modules:
       Paths_lsp_xreferee
   autogen-modules:
