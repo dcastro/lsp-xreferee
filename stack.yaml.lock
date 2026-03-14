@@ -5,6 +5,17 @@
 
 packages:
 - completed:
+    commit: a4f6aba2774172f95151d90e26bdd4557bdfb9f1
+    git: https://github.com/dcastro/xreferee.git
+    name: xreferee
+    pantry-tree:
+      sha256: 18c1d95b582927d9addd88d4d2601c8d1047ff6ceeca08828c46e36d75e86a55
+      size: 4933
+    version: 1.0.0
+  original:
+    commit: a4f6aba2774172f95151d90e26bdd4557bdfb9f1
+    git: https://github.com/dcastro/xreferee.git
+- completed:
     hackage: lsp-2.8.0.0@sha256:cee3b1ed7984ab21f77a7ef59d55602ace016cf188bd7c530d54f62b2e9dfb1d,3909
     pantry-tree:
       sha256: a3ccf598d55afadd3e244fa0b25a6e5dd36348243ffc414a8bb96734efc3a06f
