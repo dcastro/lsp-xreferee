@@ -20,7 +20,7 @@ import Language.LSP.Diagnostics
 import Language.LSP.Logging (defaultClientLogger)
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
-import Language.LSP.Protocol.Types (UInt)
+import Language.LSP.Protocol.Types (UInt, Uri)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import Language.LSP.VFS qualified as VFS
@@ -30,10 +30,9 @@ import System.Exit
 import System.IO
 import Text.Pretty.Simple (pShowNoColor)
 import Unsafe.Coerce qualified as Unsafe
-import XReferee.SearchResult (SearchResult (..))
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
-import Xreferee.Lsp.Types (LabelLoc (..))
+import Xreferee.Lsp.Types (LabelLoc (..), Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
 main :: IO ()
@@ -114,9 +113,14 @@ run = flip E.catches handlers $ do
 initialize :: LogAction IO (WithSeverity Text) -> IO AppState
 initialize logger = do
   searchResult <- liftIO $ X.findRefsFromGit searchOpts
-  let symbols = Types.mkSymbols searchResult
+  workspaceDir <- Dir.getCurrentDirectory
+  let symbols = Types.mkSymbols workspaceDir searchResult
   logger <& ("Symbols: " <> (T.pack $ show symbols)) `WithSeverity` Debug
-  pure AppState {symbols, filesWithDiagnostics = Set.empty}
+  pure
+    AppState
+      { symbols,
+        filesWithDiagnostics = Set.empty
+      }
 
 -- ---------------------------------------------------------------------
 
@@ -190,12 +194,10 @@ handleDefinition logger = \req responder -> do
   -- TODO: line should be 0-based, xrefcheck uses 1-based
   -- TODO: xreferee: make column 1-based, like `git grep`, but then convert to 0-based here for LSP
 
-  let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri . to LSP.uriToFilePath & Maybe.fromJust
+  let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
   let reqLine = reqPos ^. LSP.line
   let reqColumn = reqPos ^. LSP.character
-
-  reqPath <- liftIO $ Dir.makeRelativeToCurrentDirectory reqUri
 
   state <- getState
   let refMatch =
@@ -206,7 +208,7 @@ handleDefinition logger = \req responder -> do
                 refLoc <-
                   List.find
                     ( \loc ->
-                        loc.filepath == reqPath
+                        loc.uri == reqUri
                           && xToLsp loc.lineNum == reqLine
                           && xToLsp loc.columnRange.start <= reqColumn
                           && reqColumn <= xToLsp loc.columnRange.end
@@ -229,9 +231,6 @@ handleDefinition logger = \req responder -> do
           responder $ Right $ LSP.InR (LSP.InR LSP.Null)
         Just anchorLocs -> do
           locs <- forM anchorLocs \anchorLoc -> do
-            -- TODO:
-            anchorUri <- liftIO $ Dir.makeAbsolute anchorLoc.filepath <&> LSP.filePathToUri
-
             let refRange =
                   LSP.Range
                     (LSP.Position reqLine (xToLsp refLoc.columnRange.start))
@@ -244,7 +243,7 @@ handleDefinition logger = \req responder -> do
               LSP.DefinitionLink
                 LSP.LocationLink
                   { _originSelectionRange = Just (refRange),
-                    _targetUri = anchorUri,
+                    _targetUri = anchorLoc.uri,
                     _targetRange = anchorRange,
                     _targetSelectionRange = anchorRange
                   }
@@ -255,33 +254,31 @@ handleDidChange logger = \req -> do
   logNot logger req
 
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
-  filePath <- liftIO $ Dir.makeRelativeToCurrentDirectory $ uri & LSP.uriToFilePath & Maybe.fromJust
   vf <- Maybe.fromJust <$> LSP.getVirtualFile (LSP.toNormalizedUri uri)
   let rope = vf ^. VFS.file_text
 
   let diffs = req ^. LSP.params . LSP.contentChanges
 
   modifyState \appState0 -> do
-    ApplyChangesResult linesToParse appState1 <- applyChanges logger appState0 filePath diffs
+    ApplyChangesResult linesToParse appState1 <- applyChanges logger appState0 uri diffs
 
     let newSymbols =
-          Types.mkSymbols $
-            linesToParse
-              <&> ( \lineNum ->
-                      let line = rope & Rope.getLine (fromIntegral @Int @Word lineNum) & Rope.toText
-                          (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
-                          mkLoc columnRange =
-                            X.LabelLoc
-                              { filepath = filePath,
-                                lineNum = lspToX $ fromIntegral lineNum,
-                                columnRange
-                              }
-                       in SearchResult
-                            { anchors = Map.fromListWith (<>) [(anchor, [mkLoc range]) | (anchor, range) <- anchors],
-                              references = Map.fromListWith (<>) [(ref, [mkLoc range]) | (ref, range) <- refs]
+          linesToParse
+            <&> ( \lineNum ->
+                    let line = rope & Rope.getLine (fromIntegral @Int @Word lineNum) & Rope.toText
+                        (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
+                        mkLoc columnRange =
+                          LabelLoc
+                            { uri,
+                              lineNum = lspToX $ fromIntegral lineNum,
+                              columnRange
                             }
-                  )
-              & mconcat
+                     in Symbols
+                          { anchors = Map.fromListWith (<>) [(anchor, [mkLoc range]) | (anchor, range) <- anchors],
+                            references = Map.fromListWith (<>) [(ref, [mkLoc range]) | (ref, range) <- refs]
+                          }
+                )
+            & mconcat
         appState2 = appState1 {symbols = appState1.symbols <> newSymbols}
 
     -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
@@ -292,8 +289,8 @@ handleDidChange logger = \req -> do
 -- | Calculates which lines we'll need to reparse after applying the given diffs.
 -- Removes anchors/refs that are on lines that were modified by the diffs,
 -- and updates the line numbers of anchors/refs that are located after the diffs.
-applyChanges :: AppLogger -> AppState -> FilePath -> [LSP.TextDocumentContentChangeEvent] -> AppM ApplyChangesResult
-applyChanges _logger appState filePath diffs =
+applyChanges :: AppLogger -> AppState -> Uri -> [LSP.TextDocumentContentChangeEvent] -> AppM ApplyChangesResult
+applyChanges _logger appState uri diffs =
   let initialState = ApplyChangesResult {linesToParse = [], appState = appState}
    in foldM go initialState diffs
   where
@@ -312,7 +309,7 @@ applyChanges _logger appState filePath diffs =
 
               updateLoc :: LabelLoc -> AppM (Maybe LabelLoc)
               updateLoc loc =
-                if loc.filepath /= filePath
+                if loc.uri /= uri
                   then
                     -- Anchors/refs from other files are unaffected
                     pure $ Just loc
@@ -387,7 +384,7 @@ diagnosticsSource = Just "xreferee"
 -- | Analyze the file and send any diagnostics to the client in a
 -- "textDocument/publishDiagnostics" notification
 sendDiagnostics :: AppLogger -> AppState -> AppM AppState
-sendDiagnostics logger state = do
+sendDiagnostics _logger state = do
   -- Map keys have role "nominal", so we can't coerce between Anchors and References.
   -- Even though they are both newtypes of `Text`, it's not safe to coerce a map of Anchors into a map of References because
   -- they may have different implementations of `Ord` and thus be ordered differently in the map.
@@ -401,7 +398,7 @@ sendDiagnostics logger state = do
         (_, anchorLocs) <- Map.toList unusedAnchors
         anchorLoc <- anchorLocs
         pure
-          ( anchorLoc.filepath,
+          ( anchorLoc.uri,
             [ LSP.Diagnostic
                 { _range = xLocToLspRange anchorLoc,
                   _severity = Just LSP.DiagnosticSeverity_Warning,
@@ -420,7 +417,7 @@ sendDiagnostics logger state = do
         (_, refLocs) <- Map.toList brokenRefs
         refLoc <- refLocs
         pure
-          ( refLoc.filepath,
+          ( refLoc.uri,
             [ LSP.Diagnostic
                 { _range = xLocToLspRange refLoc,
                   _severity = Just LSP.DiagnosticSeverity_Error,
@@ -439,17 +436,13 @@ sendDiagnostics logger state = do
 
   -- Publish all diagnostics
   let allDiagnosticsByFile = Map.fromListWith (<>) $ unusedAnchorsDiagnostics <> brokenRefsDiagnostics
-
-  forM_ (Map.toList allDiagnosticsByFile) $ \(filePath, diagnostics) -> do
-    uri <- liftIO $ Dir.makeAbsolute filePath <&> LSP.filePathToUri
+  forM_ (Map.toList allDiagnosticsByFile) $ \(uri, diagnostics) -> do
     publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (partitionBySource diagnostics)
 
   -- Clear diagnostics for files that had diagnostics before but don't have any now.
   let filesWithDiagnosticsNow = Map.keysSet allDiagnosticsByFile
   let filesWithDiagnosticsBefore = state.filesWithDiagnostics
-  forM_ (Set.difference filesWithDiagnosticsBefore filesWithDiagnosticsNow) \filePath -> do
-    uri <- liftIO $ Dir.makeAbsolute filePath <&> LSP.filePathToUri
-    logger <& ("Clearing diagnostics for file: " <> (T.pack $ show uri)) `WithSeverity` Info
+  forM_ (Set.difference filesWithDiagnosticsBefore filesWithDiagnosticsNow) \uri -> do
     publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (Map.singleton diagnosticsSource mempty)
 
   pure state {filesWithDiagnostics = filesWithDiagnosticsNow}
@@ -477,12 +470,9 @@ xLocToLspRange loc =
           }
     }
 
-xLocToLspLocation :: (MonadIO m) => LabelLoc -> m LSP.Location
-xLocToLspLocation loc = do
-  uri <- liftIO $ Dir.makeAbsolute loc.filepath <&> LSP.filePathToUri
-
-  pure $
-    LSP.Location
-      { _uri = uri,
-        _range = xLocToLspRange loc
-      }
+xLocToLspLocation :: LabelLoc -> LSP.Location
+xLocToLspLocation loc =
+  LSP.Location
+    { _uri = loc.uri,
+      _range = xLocToLspRange loc
+    }

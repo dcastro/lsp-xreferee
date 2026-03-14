@@ -9,6 +9,7 @@ import Data.Aeson qualified as J
 import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
 import UnliftIO.MVar qualified as Unlift
 import Xreferee.Lsp.Types (Symbols)
@@ -48,6 +49,6 @@ data Config = Config {fooTheBar :: Bool, wibbleFactor :: Int}
 data AppState = AppState
   { symbols :: Symbols,
     -- | Keep track of which files have warnings/errors.
-    filesWithDiagnostics :: Set FilePath
+    filesWithDiagnostics :: Set Uri
   }
   deriving stock (Show)

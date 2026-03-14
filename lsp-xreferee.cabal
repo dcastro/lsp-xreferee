@@ -49,6 +49,7 @@ library
     , co-log-core
     , containers
     , directory
+    , filepath
     , lens
     , lsp
     , lsp-types
@@ -85,6 +86,7 @@ executable lsp-xreferee-exe
     , co-log-core
     , containers
     , directory
+    , filepath
     , lens
     , lsp
     , lsp-types
@@ -123,6 +125,7 @@ test-suite lsp-xreferee-test
     , co-log-core
     , containers
     , directory
+    , filepath
     , lens
     , lsp
     , lsp-types

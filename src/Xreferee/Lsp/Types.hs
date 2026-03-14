@@ -3,6 +3,8 @@ module Xreferee.Lsp.Types where
 import Control.Lens hiding (Iso)
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Language.LSP.Protocol.Types qualified as Lsp
+import System.FilePath ((</>))
 import XReferee.SearchResult (SearchResult (..))
 import XReferee.SearchResult qualified as X
 
@@ -23,14 +25,14 @@ instance Monoid Symbols where
   mempty = Symbols mempty mempty
 
 data LabelLoc = LabelLoc
-  { filepath :: FilePath,
+  { uri :: Lsp.Uri,
     lineNum :: Int,
     columnRange :: X.ColumnRange
   }
   deriving stock (Show, Eq, Ord)
 
-mkSymbols :: SearchResult -> Symbols
-mkSymbols sr =
+mkSymbols :: FilePath -> SearchResult -> Symbols
+mkSymbols workspaceDir sr =
   Symbols
     { anchors = sr.anchors <&> fmap mkLabelLoc,
       references = sr.references <&> fmap mkLabelLoc
@@ -39,7 +41,7 @@ mkSymbols sr =
     mkLabelLoc :: X.LabelLoc -> LabelLoc
     mkLabelLoc l =
       LabelLoc
-        { filepath = l.filepath,
+        { uri = Lsp.filePathToUri $ workspaceDir </> l.filepath,
           lineNum = l.lineNum,
           columnRange = l.columnRange
         }

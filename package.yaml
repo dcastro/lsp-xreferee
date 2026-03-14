@@ -36,6 +36,7 @@ dependencies:
   - pretty-simple
   - text-rope
   - unliftio
+  - filepath
 
 ghc-options:
   - -Weverything
