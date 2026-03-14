@@ -235,10 +235,7 @@ handleDefinition logger = \req responder -> do
                   LSP.Range
                     (LSP.Position reqLine (xToLsp refLoc.columnRange.start))
                     (LSP.Position reqLine (xToLsp refLoc.columnRange.end + 1))
-            let anchorRange =
-                  LSP.Range
-                    (LSP.Position (xToLsp anchorLoc.lineNum) (xToLsp anchorLoc.columnRange.start))
-                    (LSP.Position (xToLsp anchorLoc.lineNum) (xToLsp anchorLoc.columnRange.end + 1))
+            let anchorRange = xLocToLspRange anchorLoc
             pure $
               LSP.DefinitionLink
                 LSP.LocationLink
@@ -395,7 +392,7 @@ sendDiagnostics _logger state = do
   let duplicateAnchors = Map.filter (\locs -> length locs > 1) state.symbols.anchors
 
   let unusedAnchorsDiagnostics = do
-        (_, anchorLocs) <- Map.toList unusedAnchors
+        (anchor, anchorLocs) <- Map.toList unusedAnchors
         anchorLoc <- anchorLocs
         pure
           ( anchorLoc.uri,
@@ -405,7 +402,7 @@ sendDiagnostics _logger state = do
                   _code = Nothing,
                   _codeDescription = Nothing,
                   _source = diagnosticsSource,
-                  _message = "Unused anchor.",
+                  _message = "Unused anchor: '" <> X.toLabel anchor <> "'",
                   _tags = Just ([LSP.DiagnosticTag_Unnecessary]),
                   _relatedInformation = Nothing,
                   _data_ = Nothing
@@ -414,7 +411,7 @@ sendDiagnostics _logger state = do
           )
 
   let brokenRefsDiagnostics = do
-        (_, refLocs) <- Map.toList brokenRefs
+        (ref, refLocs) <- Map.toList brokenRefs
         refLoc <- refLocs
         pure
           ( refLoc.uri,
@@ -424,7 +421,7 @@ sendDiagnostics _logger state = do
                   _code = Nothing,
                   _codeDescription = Nothing,
                   _source = diagnosticsSource,
-                  _message = "Broken reference.",
+                  _message = "Broken reference: '" <> X.toLabel ref <> "'",
                   _tags = Nothing,
                   _relatedInformation = Nothing,
                   _data_ = Nothing
@@ -432,10 +429,35 @@ sendDiagnostics _logger state = do
             ]
           )
 
-  -- TODO: duplicate anchors
+  let duplicateAnchorsDiagnostics = do
+        (anchor, anchorLocs) <- Map.toList duplicateAnchors
+        guard (length anchorLocs > 1)
+        anchorLoc <- anchorLocs
+        let otherLocs = filter (/= anchorLoc) anchorLocs
+        pure
+          ( anchorLoc.uri,
+            [ LSP.Diagnostic
+                { _range = xLocToLspRange anchorLoc,
+                  _severity = Just LSP.DiagnosticSeverity_Error,
+                  _code = Nothing,
+                  _codeDescription = Nothing,
+                  _source = diagnosticsSource,
+                  _message = "Duplicate anchor: '" <> X.toLabel anchor <> "'",
+                  _tags = Nothing,
+                  _relatedInformation =
+                    Just $
+                      otherLocs <&> \otherLoc ->
+                        LSP.DiagnosticRelatedInformation
+                          { _location = xLocToLspLocation otherLoc,
+                            _message = "Duplicate definition."
+                          },
+                  _data_ = Nothing
+                }
+            ]
+          )
 
   -- Publish all diagnostics
-  let allDiagnosticsByFile = Map.fromListWith (<>) $ unusedAnchorsDiagnostics <> brokenRefsDiagnostics
+  let allDiagnosticsByFile = Map.fromListWith (<>) $ unusedAnchorsDiagnostics <> brokenRefsDiagnostics <> duplicateAnchorsDiagnostics
   forM_ (Map.toList allDiagnosticsByFile) $ \(uri, diagnostics) -> do
     publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (partitionBySource diagnostics)
 
@@ -466,7 +488,7 @@ xLocToLspRange loc =
       _end =
         LSP.Position
           { _line = xToLsp loc.lineNum,
-            _character = xToLsp loc.columnRange.end
+            _character = xToLsp loc.columnRange.end + 1
           }
     }
 
