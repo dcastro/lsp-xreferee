@@ -235,7 +235,7 @@ handleDefinition logger = \req responder -> do
                   LSP.Range
                     (LSP.Position reqLine refLoc.columnRange.start)
                     (LSP.Position reqLine (refLoc.columnRange.end + 1))
-            let anchorRange = xLocToLspRange anchorLoc
+            let anchorRange = labelLocToLspRange anchorLoc
             pure $
               LSP.DefinitionLink
                 LSP.LocationLink
@@ -397,7 +397,7 @@ sendDiagnostics _logger state = do
         pure
           ( anchorLoc.uri,
             [ LSP.Diagnostic
-                { _range = xLocToLspRange anchorLoc,
+                { _range = labelLocToLspRange anchorLoc,
                   _severity = Just LSP.DiagnosticSeverity_Warning,
                   _code = Nothing,
                   _codeDescription = Nothing,
@@ -416,7 +416,7 @@ sendDiagnostics _logger state = do
         pure
           ( refLoc.uri,
             [ LSP.Diagnostic
-                { _range = xLocToLspRange refLoc,
+                { _range = labelLocToLspRange refLoc,
                   _severity = Just LSP.DiagnosticSeverity_Error,
                   _code = Nothing,
                   _codeDescription = Nothing,
@@ -437,7 +437,7 @@ sendDiagnostics _logger state = do
         pure
           ( anchorLoc.uri,
             [ LSP.Diagnostic
-                { _range = xLocToLspRange anchorLoc,
+                { _range = labelLocToLspRange anchorLoc,
                   _severity = Just LSP.DiagnosticSeverity_Error,
                   _code = Nothing,
                   _codeDescription = Nothing,
@@ -448,7 +448,7 @@ sendDiagnostics _logger state = do
                     Just $
                       otherLocs <&> \otherLoc ->
                         LSP.DiagnosticRelatedInformation
-                          { _location = xLocToLspLocation otherLoc,
+                          { _location = labelLocToLspLocation otherLoc,
                             _message = "Duplicate definition."
                           },
                   _data_ = Nothing
@@ -469,8 +469,8 @@ sendDiagnostics _logger state = do
 
   pure state {filesWithDiagnostics = filesWithDiagnosticsNow}
 
-xLocToLspRange :: LabelLoc -> LSP.Range
-xLocToLspRange loc =
+labelLocToLspRange :: LabelLoc -> LSP.Range
+labelLocToLspRange loc =
   LSP.Range
     { _start =
         LSP.Position
@@ -484,9 +484,9 @@ xLocToLspRange loc =
           }
     }
 
-xLocToLspLocation :: LabelLoc -> LSP.Location
-xLocToLspLocation loc =
+labelLocToLspLocation :: LabelLoc -> LSP.Location
+labelLocToLspLocation loc =
   LSP.Location
     { _uri = loc.uri,
-      _range = xLocToLspRange loc
+      _range = labelLocToLspRange loc
     }
