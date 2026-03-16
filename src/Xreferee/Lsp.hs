@@ -304,26 +304,25 @@ applyChanges _logger appState uri diffs =
               -- How many lines were added (or removed) by this diff.
               lineDelta = newLineCount - oldLineCount
 
-              updateLoc :: LabelLoc -> AppM (Maybe LabelLoc)
+              updateLoc :: LabelLoc -> Maybe LabelLoc
               updateLoc loc =
                 if loc.uri /= uri
                   then
                     -- Anchors/refs from other files are unaffected
-                    pure $ Just loc
+                    Just loc
                   else
                     -- Discard anchors/refs on lines that were modified
                     if loc.lineNum >= oldLineStart && loc.lineNum <= oldLineEnd
                       then do
-                        pure Nothing
+                        Nothing
                       else
                         -- Update the line numbers of anchors/refs that are after the diff
                         if loc.lineNum > oldLineEnd
                           then do
-                            pure $
-                              Just loc {lineNum = loc.lineNum + lineDelta}
+                            Just loc {lineNum = loc.lineNum + lineDelta}
                           else
                             -- Anchors/refs from lines before the diff are unaffected
-                            pure $ Just loc
+                            Just loc
 
               -- Update the line numbers we need to reparse.
               -- If they occur after this diff, they need to be shifted by the line delta, just like the anchors/refs.
@@ -334,27 +333,21 @@ applyChanges _logger appState uri diffs =
               -- so we need to wait until the end of the function to parse them, once we've processed all the diffs and updated our state accordingly.
               linesToParse1 = linesToParse0 <> [oldLineStart .. oldLineStart + newLineCount - 1]
 
-          anchors0 <-
-            result.appState.symbols.anchors
-              & Map.toList
-              & traverse
-                ( \(anchor, locs) -> do
-                    locs' <- locs & traverse updateLoc <&> Maybe.catMaybes
-                    pure $ if null locs' then Nothing else Just (anchor, locs')
-                )
-              <&> Maybe.catMaybes
-              <&> Map.fromList
+          let anchors0 =
+                result.appState.symbols.anchors
+                  & Map.mapMaybe
+                    ( \locs ->
+                        let locs' = locs & Maybe.mapMaybe updateLoc
+                         in if null locs' then Nothing else Just locs'
+                    )
 
-          refs0 <-
-            result.appState.symbols.references
-              & Map.toList
-              & traverse
-                ( \(ref, locs) -> do
-                    locs' <- locs & traverse updateLoc <&> Maybe.catMaybes
-                    pure $ if null locs' then Nothing else Just (ref, locs')
-                )
-              <&> Maybe.catMaybes
-              <&> Map.fromList
+          let refs0 =
+                result.appState.symbols.references
+                  & Map.mapMaybe
+                    ( \locs ->
+                        let locs' = locs & Maybe.mapMaybe updateLoc
+                         in if null locs' then Nothing else Just locs'
+                    )
 
           pure $
             result
