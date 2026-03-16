@@ -159,11 +159,7 @@ handle logger =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
         modifyState $ sendDiagnostics logger,
-      notificationHandler LSP.SMethod_TextDocumentDidOpen $ \msg -> do
-        let doc = msg ^. LSP.params . LSP.textDocument . LSP.uri
-            fileName = LSP.uriToFilePath doc
-        logger <& ("Processing DidOpenTextDocument for: " <> T.pack (show fileName)) `WithSeverity` Info
-        modifyState $ sendDiagnostics logger,
+      notificationHandler LSP.SMethod_TextDocumentDidOpen (handleDidOpen logger),
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \msg -> do
         cfg <- getConfig
         logger L.<& ("Configuration changed: " <> T.pack (show (msg, cfg))) `WithSeverity` Info
@@ -245,6 +241,54 @@ handleDefinition logger = \req responder -> do
                     _targetSelectionRange = anchorRange
                   }
           responder $ Right $ LSP.InR (LSP.InL locs)
+
+handleDidOpen :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidOpen
+handleDidOpen logger = \req -> do
+  logNot logger req
+
+  let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let contents = req ^. LSP.params . LSP.textDocument . LSP.text
+
+  -- Parse the symbols for this file
+  let newSymbols =
+        (T.lines contents `zip` [0 ..])
+          <&> ( \(line, lineNum) ->
+                  let (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
+                      mkLoc columnRange =
+                        LabelLoc
+                          { uri,
+                            lineNum,
+                            columnRange = Types.mkColumnRange columnRange
+                          }
+                   in Symbols
+                        { anchors = Map.fromListWith (<>) [(anchor, [mkLoc range]) | (anchor, range) <- anchors],
+                          references = Map.fromListWith (<>) [(ref, [mkLoc range]) | (ref, range) <- refs]
+                        }
+              )
+          & mconcat
+
+  modifyState \appState0 -> do
+    -- Remove the symbols for this file
+    let removeLoc loc = if loc.uri == uri then Nothing else Just loc
+    let removeLocs locs =
+          let locs' = locs & Maybe.mapMaybe removeLoc
+           in if null locs' then Nothing else Just locs'
+    let appState1 =
+          appState0
+            { symbols =
+                appState0.symbols
+                  { Types.anchors = Map.mapMaybe removeLocs appState0.symbols.anchors,
+                    Types.references = Map.mapMaybe removeLocs appState0.symbols.references
+                  }
+            }
+
+    -- Add the new symbols for this file
+    let appState2 = appState1 {symbols = appState1.symbols <> newSymbols}
+
+    -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
+    if appState0.symbols == appState2.symbols
+      then pure appState2
+      else sendDiagnostics logger appState2
 
 handleDidChange :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange logger = \req -> do
