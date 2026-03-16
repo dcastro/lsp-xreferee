@@ -6,6 +6,8 @@ import Control.Lens hiding (Iso)
 import Control.Monad.IO.Class
 import Control.Monad.Reader (ReaderT (runReaderT), ask)
 import Data.Aeson qualified as J
+import Data.Int (Int32)
+import Data.Map.Strict qualified as SM
 import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -49,6 +51,7 @@ data Config = Config {fooTheBar :: Bool, wibbleFactor :: Int}
 data AppState = AppState
   { symbols :: Symbols,
     -- | Keep track of which files have warnings/errors.
-    filesWithDiagnostics :: Set Uri
+    filesWithDiagnostics :: Set Uri,
+    fileVersions :: SM.Map Uri Int32
   }
   deriving stock (Show)

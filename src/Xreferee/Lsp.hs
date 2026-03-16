@@ -8,8 +8,10 @@ import Control.Lens hiding (Iso)
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Aeson qualified as J
+import Data.Int (Int32)
 import Data.List qualified as List
 import Data.Map qualified as Map
+import Data.Map.Strict qualified as SM
 import Data.Maybe qualified as Maybe
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -119,7 +121,8 @@ initialize logger = do
   pure
     AppState
       { symbols,
-        filesWithDiagnostics = Set.empty
+        filesWithDiagnostics = Set.empty,
+        fileVersions = SM.empty
       }
 
 -- ---------------------------------------------------------------------
@@ -242,11 +245,21 @@ handleDefinition logger = \req responder -> do
                   }
           responder $ Right $ LSP.InR (LSP.InL locs)
 
+-- | Handle `didOpen` notifications.
+--
+-- When a file is opened, it may not necessarily reflect the state of the file on disk.
+-- There are at least 2 situations where this can happen:
+-- 1. When a user has unsaved changes in the file and restarts the editor,
+--    the LSP will receive a `didOpen` with the contents of the "dirty" in-memory buffer.
+-- 2. When the user starts the editor and quickly starts typing into the in-memory buffer before
+--    the LSP server has been loaded.
+--
+-- This handler checks if the in-memory buffer is in a "dirty" state,
+-- and if so, it reparses the file and updates the symbols.
 handleDidOpen :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidOpen
 handleDidOpen logger = \req -> do
-  logNot logger req
-
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text
 
   -- Parse the symbols for this file
@@ -268,32 +281,44 @@ handleDidOpen logger = \req -> do
           & mconcat
 
   modifyState \appState0 -> do
-    -- Remove the symbols for this file
-    let removeLoc loc = if loc.uri == uri then Nothing else Just loc
-    let removeLocs locs =
-          let locs' = locs & Maybe.mapMaybe removeLoc
-           in if null locs' then Nothing else Just locs'
-    let appState1 =
-          appState0
-            { symbols =
-                appState0.symbols
-                  { Types.anchors = Map.mapMaybe removeLocs appState0.symbols.anchors,
-                    Types.references = Map.mapMaybe removeLocs appState0.symbols.references
-                  }
-            }
+    if not (checkIsDirty uri fileVersion appState0)
+      then
+        pure appState0
+      else do
+        -- Remove the symbols for this file
+        let removeLoc loc = if loc.uri == uri then Nothing else Just loc
+        let removeLocs locs =
+              let locs' = locs & Maybe.mapMaybe removeLoc
+               in if null locs' then Nothing else Just locs'
+        let appState1 =
+              appState0
+                { symbols =
+                    appState0.symbols
+                      { Types.anchors = Map.mapMaybe removeLocs appState0.symbols.anchors,
+                        Types.references = Map.mapMaybe removeLocs appState0.symbols.references
+                      }
+                }
 
-    -- Add the new symbols for this file
-    let appState2 = appState1 {symbols = appState1.symbols <> newSymbols}
+        -- Add the new symbols for this file
+        let appState2 =
+              appState1
+                { symbols = appState1.symbols <> newSymbols,
+                  -- Update the version we have for this file.
+                  fileVersions = SM.insert uri fileVersion appState1.fileVersions
+                }
 
-    -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
-    if appState0.symbols == appState2.symbols
-      then pure appState2
-      else sendDiagnostics logger appState2
+        -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
+        if appState0.symbols == appState2.symbols
+          then pure appState2
+          else sendDiagnostics logger appState2
+  where
+    checkIsDirty :: Uri -> Int32 -> AppState -> Bool
+    checkIsDirty uri fileVersion appState =
+      let lastSeenVersion = SM.findWithDefault 1 uri appState.fileVersions
+       in fileVersion /= lastSeenVersion
 
 handleDidChange :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange logger = \req -> do
-  logNot logger req
-
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   vf <- Maybe.fromJust <$> LSP.getVirtualFile (LSP.toNormalizedUri uri)
   let rope = vf ^. VFS.file_text
@@ -320,7 +345,12 @@ handleDidChange logger = \req -> do
                           }
                 )
             & mconcat
-        appState2 = appState1 {symbols = appState1.symbols <> newSymbols}
+        appState2 =
+          appState1
+            { symbols = appState1.symbols <> newSymbols,
+              -- Update the version we have for this file.
+              fileVersions = SM.insert uri (vf ^. VFS.lsp_version) appState1.fileVersions
+            }
 
     -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
     if appState0.symbols == appState2.symbols
