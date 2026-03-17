@@ -10,6 +10,7 @@ import Control.Monad.IO.Class
 import Data.Aeson qualified as J
 import Data.Int (Int32)
 import Data.List qualified as List
+import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Map.Strict qualified as SM
 import Data.Maybe qualified as Maybe
@@ -189,35 +190,12 @@ handleDefinition :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDefinition
 handleDefinition logger = \req responder -> do
   logReq logger req
 
-  -- TODO: Make paths absolute after xreferee is run, convert to Uri
-  -- TODO: line should be 0-based, xrefcheck uses 1-based
-  -- TODO: xreferee: make column 1-based, like `git grep`, but then convert to 0-based here for LSP
-
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
-  let reqLine = reqPos ^. LSP.line
-  let reqColumn = reqPos ^. LSP.character
 
   state <- getState
-  let refMatch =
-        state.symbols.references
-          & Map.toList
-          & Maybe.mapMaybe
-            ( \(ref, locs) -> do
-                refLoc <-
-                  List.find
-                    ( \loc ->
-                        loc.uri == reqUri
-                          && loc.lineNum == reqLine
-                          && loc.columnRange.start <= reqColumn
-                          && reqColumn <= loc.columnRange.end
-                    )
-                    locs
-                Just (ref, refLoc)
-            )
-          & Maybe.listToMaybe
 
-  case refMatch of
+  case findSymbolAtPosition reqUri reqPos state.symbols.references of
     Nothing ->
       responder $ Right $ LSP.InR (LSP.InR LSP.Null)
     Just (ref, refLoc) -> do
@@ -232,8 +210,8 @@ handleDefinition logger = \req responder -> do
           locs <- forM anchorLocs \anchorLoc -> do
             let refRange =
                   LSP.Range
-                    (LSP.Position reqLine refLoc.columnRange.start)
-                    (LSP.Position reqLine (refLoc.columnRange.end + 1))
+                    (LSP.Position refLoc.lineNum refLoc.columnRange.start)
+                    (LSP.Position refLoc.lineNum (refLoc.columnRange.end + 1))
             let anchorRange = labelLocToLspRange anchorLoc
             pure $
               LSP.DefinitionLink
@@ -441,6 +419,10 @@ data ApplyChangesResult = ApplyChangesResult
     appState :: AppState
   }
 
+----------------------------------------------------------------------------
+-- Diagnostics
+----------------------------------------------------------------------------
+
 -- | A label that is shown next to each warning/error.
 diagnosticsSource :: Maybe Text
 diagnosticsSource = Just "xreferee"
@@ -536,6 +518,10 @@ sendDiagnostics _logger state = do
 
   pure state {filesWithDiagnostics = filesWithDiagnosticsNow}
 
+----------------------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------------------
+
 labelLocToLspRange :: LabelLoc -> LSP.Range
 labelLocToLspRange loc =
   LSP.Range
@@ -557,3 +543,24 @@ labelLocToLspLocation loc =
     { _uri = loc.uri,
       _range = labelLocToLspRange loc
     }
+
+findSymbolAtPosition :: Uri -> LSP.Position -> Map symbol [LabelLoc] -> Maybe (symbol, LabelLoc)
+findSymbolAtPosition reqUri reqPos symbols =
+  let reqLine = reqPos ^. LSP.line
+      reqColumn = reqPos ^. LSP.character
+   in symbols
+        & Map.toList
+        & Maybe.mapMaybe
+          ( \(ref, locs) -> do
+              refLoc <-
+                List.find
+                  ( \loc ->
+                      loc.uri == reqUri
+                        && loc.lineNum == reqLine
+                        && loc.columnRange.start <= reqColumn
+                        && reqColumn <= loc.columnRange.end
+                  )
+                  locs
+              Just (ref, refLoc)
+          )
+        & Maybe.listToMaybe
