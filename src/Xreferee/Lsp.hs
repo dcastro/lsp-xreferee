@@ -177,9 +177,7 @@ handle logger =
     ]
 
 handleDefinition :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDefinition
-handleDefinition logger = \req responder -> do
-  logReq logger req
-
+handleDefinition _logger = \req responder -> do
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
 
@@ -409,11 +407,13 @@ data ApplyChangesResult = ApplyChangesResult
     appState :: AppState
   }
 
+----------------------------------------------------------------------------
+-- Renames
+----------------------------------------------------------------------------
+
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareRename
 handlePrepareRename :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentPrepareRename
-handlePrepareRename logger = \req responder -> do
-  logReq logger req
-
+handlePrepareRename _logger = \req responder -> do
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position
 
@@ -441,9 +441,60 @@ handlePrepareRename logger = \req responder -> do
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename
 handleRename :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentRename
-handleRename logger = \req responder -> do
-  logReq logger req
-  pure ()
+handleRename _logger = \req responder -> do
+  let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let pos = req ^. LSP.params . LSP.position
+  let newLabelName = req ^. LSP.params . LSP.newName
+
+  state <- getState
+
+  let maybeMatch = case (findSymbolAtPosition uri pos state.symbols.anchors, findSymbolAtPosition uri pos state.symbols.references) of
+        (Just (anchor, _), _) -> Just $ X.toLabel anchor
+        (_, Just (ref, _)) -> Just $ X.toLabel ref
+        (Nothing, Nothing) -> Nothing
+
+  case maybeMatch of
+    Nothing -> responder $ Right $ LSP.InR LSP.Null
+    Just label -> do
+      let anchor = label & X.fromLabel @X.Anchor
+      let ref = label & X.fromLabel @X.Reference
+
+      let anchorLocs = Map.findWithDefault [] anchor state.symbols.anchors
+      let refLocs = Map.findWithDefault [] ref state.symbols.references
+
+      let textEdits :: [(Uri, [LSP.TextEdit])] =
+            ( do
+                anchorLoc <- anchorLocs
+                let newText = newLabelName & X.fromLabel @X.Anchor & X.renderLabel
+                pure $
+                  ( anchorLoc.uri,
+                    [ LSP.TextEdit
+                        { _range = labelLocToLspRange anchorLoc,
+                          _newText = newText
+                        }
+                    ]
+                  )
+            )
+              <> ( do
+                     refLoc <- refLocs
+                     let newText = newLabelName & X.fromLabel @X.Reference & X.renderLabel
+                     pure $
+                       ( refLoc.uri,
+                         [ LSP.TextEdit
+                             { _range = labelLocToLspRange refLoc,
+                               _newText = newText
+                             }
+                         ]
+                       )
+                 )
+      let workspaceEdit =
+            LSP.WorkspaceEdit
+              { _changes = Just $ Map.fromListWith (<>) textEdits,
+                _documentChanges = Nothing,
+                _changeAnnotations = Nothing
+              }
+
+      responder (Right $ LSP.InL workspaceEdit)
 
 ----------------------------------------------------------------------------
 -- Diagnostics
