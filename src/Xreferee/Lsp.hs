@@ -176,7 +176,8 @@ handle logger =
       notificationHandler LSP.SMethod_TextDocumentDidChange (handleDidChange logger),
       requestHandler LSP.SMethod_TextDocumentPrepareRename (handlePrepareRename logger),
       requestHandler LSP.SMethod_TextDocumentRename (handleRename logger),
-      requestHandler LSP.SMethod_TextDocumentDefinition (handleDefinition logger)
+      requestHandler LSP.SMethod_TextDocumentDefinition (handleDefinition logger),
+      requestHandler LSP.SMethod_TextDocumentReferences (handleReferences logger)
     ]
 
 handleDefinition :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDefinition
@@ -207,12 +208,33 @@ handleDefinition _logger = \req responder -> do
             pure $
               LSP.DefinitionLink
                 LSP.LocationLink
-                  { _originSelectionRange = Just (refRange),
+                  { _originSelectionRange = Just refRange,
                     _targetUri = anchorLoc.uri,
                     _targetRange = anchorRange,
                     _targetSelectionRange = anchorRange
                   }
           responder $ Right $ LSP.InR (LSP.InL locs)
+
+handleReferences :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentReferences
+handleReferences _logger = \req responder -> do
+  let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
+  let reqPos = req ^. LSP.params ^. LSP.position
+
+  state <- getState
+
+  case findSymbolAtPosition reqUri reqPos state.symbols.anchors of
+    Nothing ->
+      responder $ Right $ LSP.InR LSP.Null
+    Just (anchor, _) -> do
+      -- Find the corresponding references
+      let ref = anchor & X.toLabel & X.fromLabel @X.Reference
+      case state.symbols.references & Map.lookup ref of
+        Nothing ->
+          -- We found the anchor, but there is no matching references.
+          responder $ Right $ LSP.InR LSP.Null
+        Just refLocs -> do
+          let locs = refLocs <&> labelLocToLspLocation
+          responder $ Right $ LSP.InL locs
 
 -- | Handle `didOpen` notifications.
 --
