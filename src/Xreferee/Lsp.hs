@@ -171,18 +171,8 @@ handle logger =
           LSP.ShowMessageParams LSP.MessageType_Info $
             "Wibble factor set to " <> T.pack (show cfg.wibbleFactor),
       notificationHandler LSP.SMethod_TextDocumentDidChange (handleDidChange logger),
-      requestHandler LSP.SMethod_TextDocumentRename $ \req responder -> do
-        logger <& "Processing a textDocument/rename request" `WithSeverity` Info
-        let params = req ^. LSP.params
-            LSP.Position l c = params ^. LSP.position
-            newName = params ^. LSP.newName
-        vdoc <- getVersionedTextDoc (params ^. LSP.textDocument)
-        -- Replace some text at the position with what the user entered
-        let edit = LSP.InL $ LSP.TextEdit (LSP.mkRange l c l (c + fromIntegral (T.length newName))) newName
-            tde = LSP.TextDocumentEdit (LSP._versionedTextDocumentIdentifier # vdoc) [edit]
-            -- "documentChanges" field is preferred over "changes"
-            rsp = LSP.WorkspaceEdit Nothing (Just [LSP.InL tde]) Nothing
-        responder (Right $ LSP.InL rsp),
+      requestHandler LSP.SMethod_TextDocumentPrepareRename (handlePrepareRename logger),
+      requestHandler LSP.SMethod_TextDocumentRename (handleRename logger),
       requestHandler LSP.SMethod_TextDocumentDefinition (handleDefinition logger)
     ]
 
@@ -418,6 +408,42 @@ data ApplyChangesResult = ApplyChangesResult
   { linesToParse :: [UInt],
     appState :: AppState
   }
+
+-- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareRename
+handlePrepareRename :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentPrepareRename
+handlePrepareRename logger = \req responder -> do
+  logReq logger req
+
+  let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let pos = req ^. LSP.params . LSP.position
+
+  state <- getState
+  -- NOTE: looking up in the symbols table may not be the best solution at the moment (re-parsing the line may be faster).
+  -- But after we move the symbols table to an `IxSet`, then a symbol lookup may indeed be better.
+  let maybeMatch = case (findSymbolAtPosition uri pos state.symbols.anchors, findSymbolAtPosition uri pos state.symbols.references) of
+        (Just (anchor, anchorLoc), _) -> Just (X.toLabel anchor, anchorLoc)
+        (_, Just (ref, refLoc)) -> Just (X.toLabel ref, refLoc)
+        (Nothing, Nothing) -> Nothing
+
+  case maybeMatch of
+    Nothing -> responder $ Right $ LSP.InR LSP.Null
+    Just (label, loc) ->
+      responder $
+        Right $
+          LSP.InL $
+            LSP.PrepareRenameResult $
+              LSP.InR $
+                LSP.InL $
+                  LSP.PrepareRenamePlaceholder
+                    { _range = labelLocToLspRange loc,
+                      _placeholder = label
+                    }
+
+-- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename
+handleRename :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentRename
+handleRename logger = \req responder -> do
+  logReq logger req
+  pure ()
 
 ----------------------------------------------------------------------------
 -- Diagnostics
