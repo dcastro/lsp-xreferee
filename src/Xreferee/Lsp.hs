@@ -164,6 +164,9 @@ handle logger =
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
         modifyState $ sendDiagnostics logger,
       notificationHandler LSP.SMethod_TextDocumentDidOpen (handleDidOpen logger),
+      notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
+        -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
+        pure (),
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \msg -> do
         cfg <- getConfig
         logger L.<& ("Configuration changed: " <> T.pack (show (msg, cfg))) `WithSeverity` Info
