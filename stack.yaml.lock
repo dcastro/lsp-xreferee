@@ -29,6 +29,17 @@ packages:
       size: 51996
   original:
     hackage: lsp-types-2.4.0.0
+- completed:
+    commit: cee2074ca84b9b003b7da03f0930ad96c514c531
+    git: https://github.com/dcastro/ixset-typed.git
+    name: ixset-typed
+    pantry-tree:
+      sha256: 887fc410e9720387b29ed0b0947cd87e7aac9c0eed8aaf9c54478fc5e85b1f7d
+      size: 756
+    version: 0.5.1.0
+  original:
+    commit: cee2074ca84b9b003b7da03f0930ad96c514c531
+    git: https://github.com/dcastro/ixset-typed.git
 snapshots:
 - completed:
     sha256: a8cfaae441160430cdde558cb80d4f9d60746e7417b275250e4e0af57ee14f36

@@ -37,6 +37,7 @@ dependencies:
   - text-rope
   - unliftio
   - filepath
+  - ixset-typed
 
 ghc-options:
   - -Weverything

@@ -42,7 +42,10 @@ extra-deps:
     commit: a4f6aba2774172f95151d90e26bdd4557bdfb9f1
   - lsp-2.8.0.0
   - lsp-types-2.4.0.0
-#
+
+  - git: https://github.com/dcastro/ixset-typed.git
+    commit: cee2074ca84b9b003b7da03f0930ad96c514c531
+
 # extra-deps: []
 
 # Override default flag values for project packages and extra-deps

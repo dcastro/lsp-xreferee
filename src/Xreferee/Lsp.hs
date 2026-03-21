@@ -4,16 +4,19 @@ import Colog.Core (LogAction (..), Severity (..), WithSeverity (..), (<&))
 import Colog.Core qualified as L
 import Control.Concurrent
 import Control.Exception qualified as E
-import Control.Lens hiding (Iso)
+import Control.Lens hiding (Indexable, Iso)
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Aeson qualified as J
 import Data.Int (Int32)
-import Data.List qualified as List
+import Data.IxSet.Typed ((@<=), (@=), (@>), (@>=), (@>=<=))
+import Data.IxSet.Typed qualified as Ix
+import Data.IxSet.Typed.Util qualified as Ix
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Map.Strict qualified as SM
 import Data.Maybe qualified as Maybe
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -33,9 +36,11 @@ import System.Exit
 import System.IO
 import Text.Pretty.Simple (pShowNoColor)
 import Unsafe.Coerce qualified as Unsafe
+import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
-import Xreferee.Lsp.Types (LabelLoc (..), Symbols (..))
+import Xreferee.Lsp.AppM qualified as App
+import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LabelLoc (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
 main :: IO ()
@@ -157,6 +162,14 @@ logNot :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TNotificationMessage 
 logNot logger msg = do
   logger <& (LT.toStrict $ pShowNoColor msg) `WithSeverity` Debug
 
+logReq' :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TRequestMessage a -> AppM ()
+logReq' logger msg = do
+  logger <& (T.pack $ show msg) `WithSeverity` Debug
+
+logNot' :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TNotificationMessage a -> AppM ()
+logNot' logger msg = do
+  logger <& (T.pack $ show msg) `WithSeverity` Debug
+
 -- | Where the actual logic resides for handling requests and notifications.
 handle :: AppLogger -> Handlers AppM
 handle logger =
@@ -190,30 +203,30 @@ handleDefinition _logger = \req responder -> do
   case findSymbolAtPosition reqUri reqPos state.symbols.references of
     Nothing ->
       responder $ Right $ LSP.InR (LSP.InR LSP.Null)
-    Just (ref, refLoc) -> do
-      -- Find the corresponding anchor(s)
-      let anchor = ref & X.toLabel & X.fromLabel @X.Anchor
-      let anchorMatch = state.symbols.anchors & Map.lookup anchor
-      case anchorMatch of
-        Nothing ->
-          -- We found the reference, but there is no matching anchor.
-          responder $ Right $ LSP.InR (LSP.InR LSP.Null)
-        Just anchorLocs -> do
-          locs <- forM anchorLocs \anchorLoc -> do
-            let refRange =
-                  LSP.Range
-                    (LSP.Position refLoc.lineNum refLoc.columnRange.start)
-                    (LSP.Position refLoc.lineNum (refLoc.columnRange.end + 1))
-            let anchorRange = labelLocToLspRange anchorLoc
-            pure $
-              LSP.DefinitionLink
-                LSP.LocationLink
-                  { _originSelectionRange = Just refRange,
-                    _targetUri = anchorLoc.uri,
-                    _targetRange = anchorRange,
-                    _targetSelectionRange = anchorRange
-                  }
-          responder $ Right $ LSP.InR (LSP.InL locs)
+    Just refEntry -> do
+      -- Find the corresponding anchor(s).
+      -- Ideally there will be 1, but there can also be 0 (if the reference is broken) or more than 1 (if there are duplicate anchors).
+      let anchor = refEntry.symbol & X.toLabel & X.fromLabel @X.Anchor
+      -- Build links from the reference to the anchor(s)
+      let links =
+            state.symbols.anchors
+              @= anchor
+              & Ix.toList
+              <&> \anchorEntry ->
+                let refRange =
+                      LSP.Range
+                        { _start = LSP.Position refEntry.loc.lineNum refEntry.loc.columnRange.start,
+                          _end = LSP.Position refEntry.loc.lineNum (refEntry.loc.columnRange.end + 1)
+                        }
+                    anchorRange = labelLocToLspRange anchorEntry.loc
+                 in LSP.DefinitionLink
+                      LSP.LocationLink
+                        { _originSelectionRange = Just refRange,
+                          _targetUri = anchorEntry.loc.uri,
+                          _targetRange = anchorRange,
+                          _targetSelectionRange = anchorRange
+                        }
+      responder $ Right $ LSP.InR (LSP.InL links)
 
 handleReferences :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentReferences
 handleReferences _logger = \req responder -> do
@@ -225,16 +238,11 @@ handleReferences _logger = \req responder -> do
   case findSymbolAtPosition reqUri reqPos state.symbols.anchors of
     Nothing ->
       responder $ Right $ LSP.InR LSP.Null
-    Just (anchor, _) -> do
+    Just anchorEntry -> do
       -- Find the corresponding references
-      let ref = anchor & X.toLabel & X.fromLabel @X.Reference
-      case state.symbols.references & Map.lookup ref of
-        Nothing ->
-          -- We found the anchor, but there is no matching references.
-          responder $ Right $ LSP.InR LSP.Null
-        Just refLocs -> do
-          let locs = refLocs <&> labelLocToLspLocation
-          responder $ Right $ LSP.InL locs
+      let ref = anchorEntry.symbol & X.toLabel & X.fromLabel @X.Reference
+      let locs = state.symbols.references @= ref & Ix.toList <&> \refEntry -> labelLocToLspLocation refEntry.loc
+      responder $ Right $ LSP.InL locs
 
 -- | Handle `didOpen` notifications.
 --
@@ -249,6 +257,7 @@ handleReferences _logger = \req responder -> do
 -- and if so, it reparses the file and updates the symbols.
 handleDidOpen :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidOpen
 handleDidOpen logger = \req -> do
+  logNot' logger req
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text
@@ -258,15 +267,20 @@ handleDidOpen logger = \req -> do
         (T.lines contents `zip` [0 ..])
           <&> ( \(line, lineNum) ->
                   let (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
-                      mkLoc columnRange =
-                        LabelLoc
-                          { uri,
-                            lineNum,
-                            columnRange = Types.mkColumnRange columnRange
+                      mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
+                      mkSymbolEntry sym columnRange =
+                        SymbolEntry
+                          { symbol = sym,
+                            loc =
+                              LabelLoc
+                                { uri,
+                                  lineNum,
+                                  columnRange = Types.mkColumnRange columnRange
+                                }
                           }
                    in Symbols
-                        { anchors = Map.fromListWith (<>) [(anchor, [mkLoc range]) | (anchor, range) <- anchors],
-                          references = Map.fromListWith (<>) [(ref, [mkLoc range]) | (ref, range) <- refs]
+                        { anchors = anchors <&> uncurry mkSymbolEntry & Ix.fromList,
+                          references = refs <&> uncurry mkSymbolEntry & Ix.fromList
                         }
               )
           & mconcat
@@ -277,16 +291,12 @@ handleDidOpen logger = \req -> do
         pure appState0
       else do
         -- Remove the symbols for this file
-        let removeLoc loc = if loc.uri == uri then Nothing else Just loc
-        let removeLocs locs =
-              let locs' = locs & Maybe.mapMaybe removeLoc
-               in if null locs' then Nothing else Just locs'
         let appState1 =
               appState0
-                { symbols =
+                { App.symbols =
                     appState0.symbols
-                      { Types.anchors = Map.mapMaybe removeLocs appState0.symbols.anchors,
-                        Types.references = Map.mapMaybe removeLocs appState0.symbols.references
+                      { anchors = Ix.deleteMany appState0.symbols.anchors (\anchors -> anchors @= uri),
+                        references = Ix.deleteMany appState0.symbols.references (\references -> references @= uri)
                       }
                 }
 
@@ -310,6 +320,8 @@ handleDidOpen logger = \req -> do
 
 handleDidChange :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange logger = \req -> do
+  logNot' logger req
+
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   vf <- Maybe.fromJust <$> LSP.getVirtualFile (LSP.toNormalizedUri uri)
   let rope = vf ^. VFS.file_text
@@ -317,43 +329,50 @@ handleDidChange logger = \req -> do
   let diffs = req ^. LSP.params . LSP.contentChanges
 
   modifyState \appState0 -> do
-    ApplyChangesResult linesToParse appState1 <- applyChanges logger appState0 uri diffs
+    -- Apply the diffs to our symbols tables
+    ApplyChangesResult linesToParse symbols1 <- applyChanges logger appState0.symbols uri diffs
 
+    -- Parse any new symbols introduces by the diffs
     let newSymbols =
           linesToParse
             <&> ( \lineNum ->
                     let line = rope & Rope.getLine (fromIntegral @UInt @Word lineNum) & Rope.toText
                         (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
-                        mkLoc columnRange =
-                          LabelLoc
-                            { uri,
-                              lineNum,
-                              columnRange = Types.mkColumnRange columnRange
+                        mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
+                        mkSymbolEntry sym columnRange =
+                          SymbolEntry
+                            { symbol = sym,
+                              loc =
+                                LabelLoc
+                                  { uri,
+                                    lineNum,
+                                    columnRange = Types.mkColumnRange columnRange
+                                  }
                             }
                      in Symbols
-                          { anchors = Map.fromListWith (<>) [(anchor, [mkLoc range]) | (anchor, range) <- anchors],
-                            references = Map.fromListWith (<>) [(ref, [mkLoc range]) | (ref, range) <- refs]
+                          { anchors = anchors <&> uncurry mkSymbolEntry & Ix.fromList,
+                            references = refs <&> uncurry mkSymbolEntry & Ix.fromList
                           }
                 )
             & mconcat
-        appState2 =
-          appState1
-            { symbols = appState1.symbols <> newSymbols,
+        appState1 =
+          appState0
+            { symbols = symbols1 <> newSymbols,
               -- Update the version we have for this file.
-              fileVersions = SM.insert uri (vf ^. VFS.lsp_version) appState1.fileVersions
+              fileVersions = SM.insert uri (vf ^. VFS.lsp_version) appState0.fileVersions
             }
 
     -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
-    if appState0.symbols == appState2.symbols
-      then pure appState2
-      else sendDiagnostics logger appState2
+    if appState0.symbols == appState1.symbols
+      then pure appState1
+      else sendDiagnostics logger appState1
 
 -- | Calculates which lines we'll need to reparse after applying the given diffs.
 -- Removes anchors/refs that are on lines that were modified by the diffs,
 -- and updates the line numbers of anchors/refs that are located after the diffs.
-applyChanges :: AppLogger -> AppState -> Uri -> [LSP.TextDocumentContentChangeEvent] -> AppM ApplyChangesResult
-applyChanges _logger appState uri diffs =
-  let initialState = ApplyChangesResult {linesToParse = [], appState = appState}
+applyChanges :: AppLogger -> Symbols -> Uri -> [LSP.TextDocumentContentChangeEvent] -> AppM ApplyChangesResult
+applyChanges _logger symbols uri diffs =
+  let initialState = ApplyChangesResult {linesToParse = [], symbols = symbols}
    in foldM go initialState diffs
   where
     go :: ApplyChangesResult -> LSP.TextDocumentContentChangeEvent -> AppM ApplyChangesResult
@@ -369,25 +388,28 @@ applyChanges _logger appState uri diffs =
               -- How many lines were added (or removed) by this diff.
               lineDelta = newLineCount - oldLineCount
 
-              updateLoc :: LabelLoc -> Maybe LabelLoc
-              updateLoc loc =
-                if loc.uri /= uri
-                  then
-                    -- Anchors/refs from other files are unaffected
-                    Just loc
-                  else
-                    -- Discard anchors/refs on lines that were modified
-                    if loc.lineNum >= oldLineStart && loc.lineNum <= oldLineEnd
-                      then do
-                        Nothing
-                      else
-                        -- Update the line numbers of anchors/refs that are after the diff
-                        if loc.lineNum > oldLineEnd
-                          then do
-                            Just loc {lineNum = loc.lineNum + lineDelta}
-                          else
-                            -- Anchors/refs from lines before the diff are unaffected
-                            Just loc
+              -- Get the symbols defined in this file
+              thisFileAnchors = result.symbols.anchors @= uri
+              thisFileReferences = result.symbols.references @= uri
+
+              -- Discard anchors/refs on lines that were modified by this diff
+              deleteEntriesInDiff :: forall symbol. (SymbolIxsConstraint symbol) => SymbolSet symbol -> SymbolSet symbol -> SymbolSet symbol
+              deleteEntriesInDiff thisFileSymbols allSymbols =
+                let entriesToDelete = thisFileSymbols @>=<= (LineNum oldLineStart, LineNum oldLineEnd)
+                 in Ix.difference allSymbols entriesToDelete
+
+              -- Update the line numbers of anchors/refs that are after the diff
+              shiftEntriesAfterDiff :: forall symbol. (SymbolIxsConstraint symbol) => SymbolSet symbol -> SymbolSet symbol -> SymbolSet symbol
+              shiftEntriesAfterDiff thisFileSymbols allSymbols =
+                let entriesToShift = thisFileSymbols @> LineNum oldLineEnd
+                    shiftedEntries =
+                      entriesToShift
+                        & Ix.toList
+                        <&> (\entry -> entry {loc = entry.loc {lineNum = entry.loc.lineNum + lineDelta}})
+                        & Ix.fromList
+                 in allSymbols
+                      & Ix.difference entriesToShift
+                      & Ix.union shiftedEntries
 
               -- Update the line numbers we need to reparse.
               -- If they occur after this diff, they need to be shifted by the line delta, just like the anchors/refs.
@@ -399,37 +421,27 @@ applyChanges _logger appState uri diffs =
               linesToParse1 = linesToParse0 <> [oldLineStart .. oldLineStart + newLineCount - 1]
 
           let anchors0 =
-                result.appState.symbols.anchors
-                  & Map.mapMaybe
-                    ( \locs ->
-                        let locs' = locs & Maybe.mapMaybe updateLoc
-                         in if null locs' then Nothing else Just locs'
-                    )
-
+                result.symbols.anchors
+                  & deleteEntriesInDiff thisFileAnchors
+                  & shiftEntriesAfterDiff thisFileAnchors
           let refs0 =
-                result.appState.symbols.references
-                  & Map.mapMaybe
-                    ( \locs ->
-                        let locs' = locs & Maybe.mapMaybe updateLoc
-                         in if null locs' then Nothing else Just locs'
-                    )
+                result.symbols.references
+                  & deleteEntriesInDiff thisFileReferences
+                  & shiftEntriesAfterDiff thisFileReferences
 
           pure $
             result
               { linesToParse = linesToParse1,
-                appState =
-                  result.appState
-                    { symbols =
-                        result.appState.symbols
-                          { Types.anchors = anchors0,
-                            Types.references = refs0
-                          }
+                symbols =
+                  result.symbols
+                    { anchors = anchors0,
+                      references = refs0
                     }
               }
 
 data ApplyChangesResult = ApplyChangesResult
   { linesToParse :: [UInt],
-    appState :: AppState
+    symbols :: Symbols
   }
 
 ----------------------------------------------------------------------------
@@ -446,8 +458,8 @@ handlePrepareRename _logger = \req responder -> do
   -- NOTE: looking up in the symbols table may not be the best solution at the moment (re-parsing the line may be faster).
   -- But after we move the symbols table to an `IxSet`, then a symbol lookup may indeed be better.
   let maybeMatch = case (findSymbolAtPosition uri pos state.symbols.anchors, findSymbolAtPosition uri pos state.symbols.references) of
-        (Just (anchor, anchorLoc), _) -> Just (X.toLabel anchor, anchorLoc)
-        (_, Just (ref, refLoc)) -> Just (X.toLabel ref, refLoc)
+        (Just anchorEntry, _) -> Just (X.toLabel anchorEntry.symbol, anchorEntry.loc)
+        (_, Just refEntry) -> Just (X.toLabel refEntry.symbol, refEntry.loc)
         (Nothing, Nothing) -> Nothing
 
   case maybeMatch of
@@ -474,8 +486,8 @@ handleRename _logger = \req responder -> do
   state <- getState
 
   let maybeMatch = case (findSymbolAtPosition uri pos state.symbols.anchors, findSymbolAtPosition uri pos state.symbols.references) of
-        (Just (anchor, _), _) -> Just $ X.toLabel anchor
-        (_, Just (ref, _)) -> Just $ X.toLabel ref
+        (Just anchorEntry, _) -> Just $ X.toLabel anchorEntry.symbol
+        (_, Just refEntry) -> Just $ X.toLabel refEntry.symbol
         (Nothing, Nothing) -> Nothing
 
   case maybeMatch of
@@ -484,37 +496,33 @@ handleRename _logger = \req responder -> do
       let anchor = label & X.fromLabel @X.Anchor
       let ref = label & X.fromLabel @X.Reference
 
-      let anchorLocs = Map.findWithDefault [] anchor state.symbols.anchors
-      let refLocs = Map.findWithDefault [] ref state.symbols.references
+      let anchorEdits :: Map Uri [LSP.TextEdit] =
+            state.symbols.anchors
+              @= anchor
+              & Ix.groupBy' @Uri
+              <&> \entries ->
+                Set.toList entries
+                  <&> \entry ->
+                    LSP.TextEdit
+                      { _range = labelLocToLspRange entry.loc,
+                        _newText = newLabelName & X.fromLabel @X.Anchor & X.renderLabel
+                      }
 
-      let textEdits :: [(Uri, [LSP.TextEdit])] =
-            ( do
-                anchorLoc <- anchorLocs
-                let newText = newLabelName & X.fromLabel @X.Anchor & X.renderLabel
-                pure $
-                  ( anchorLoc.uri,
-                    [ LSP.TextEdit
-                        { _range = labelLocToLspRange anchorLoc,
-                          _newText = newText
-                        }
-                    ]
-                  )
-            )
-              <> ( do
-                     refLoc <- refLocs
-                     let newText = newLabelName & X.fromLabel @X.Reference & X.renderLabel
-                     pure $
-                       ( refLoc.uri,
-                         [ LSP.TextEdit
-                             { _range = labelLocToLspRange refLoc,
-                               _newText = newText
-                             }
-                         ]
-                       )
-                 )
+      let refEdits :: Map Uri [LSP.TextEdit] =
+            state.symbols.references
+              @= ref
+              & Ix.groupBy' @Uri
+              <&> \entries ->
+                Set.toList entries
+                  <&> \entry ->
+                    LSP.TextEdit
+                      { _range = labelLocToLspRange entry.loc,
+                        _newText = newLabelName & X.fromLabel @X.Reference & X.renderLabel
+                      }
+
       let workspaceEdit =
             LSP.WorkspaceEdit
-              { _changes = Just $ Map.fromListWith (<>) textEdits,
+              { _changes = Just $ Map.unionWith (<>) anchorEdits refEdits,
                 _documentChanges = Nothing,
                 _changeAnnotations = Nothing
               }
@@ -533,22 +541,25 @@ diagnosticsSource = Just "xreferee"
 -- "textDocument/publishDiagnostics" notification
 sendDiagnostics :: AppLogger -> AppState -> AppM AppState
 sendDiagnostics _logger state = do
+  let anchorsGrouped = state.symbols.anchors & Ix.groupBy' @Anchor :: Map Anchor (Set (SymbolEntry Anchor))
+  let refsGrouped = state.symbols.references & Ix.groupBy' @Reference :: Map Reference (Set (SymbolEntry Reference))
+
   -- Map keys have role "nominal", so we can't coerce between Anchors and References.
   -- Even though they are both newtypes of `Text`, it's not safe to coerce a map of Anchors into a map of References because
   -- they may have different implementations of `Ord` and thus be ordered differently in the map.
   -- However, we do know that `Anchor` and `Reference` have the same `Ord` implementation,
   -- so we use `unsafeCoerce`.
-  let unusedAnchors = Map.difference state.symbols.anchors (Unsafe.unsafeCoerce state.symbols.references)
-  let brokenRefs = Map.difference state.symbols.references (Unsafe.unsafeCoerce state.symbols.anchors)
-  let duplicateAnchors = Map.filter (\locs -> length locs > 1) state.symbols.anchors
+  let unusedAnchors = Map.difference anchorsGrouped (Unsafe.unsafeCoerce refsGrouped)
+  let brokenRefs = Map.difference refsGrouped (Unsafe.unsafeCoerce anchorsGrouped)
+  let duplicateAnchors = Map.filter (\locs -> length locs > 1) anchorsGrouped
 
   let unusedAnchorsDiagnostics = do
-        (anchor, anchorLocs) <- Map.toList unusedAnchors
-        anchorLoc <- anchorLocs
+        (anchor, entries) <- Map.toList unusedAnchors
+        entry <- Set.toList entries
         pure
-          ( anchorLoc.uri,
+          ( entry.loc.uri,
             [ LSP.Diagnostic
-                { _range = labelLocToLspRange anchorLoc,
+                { _range = labelLocToLspRange entry.loc,
                   _severity = Just LSP.DiagnosticSeverity_Warning,
                   _code = Nothing,
                   _codeDescription = Nothing,
@@ -562,12 +573,12 @@ sendDiagnostics _logger state = do
           )
 
   let brokenRefsDiagnostics = do
-        (ref, refLocs) <- Map.toList brokenRefs
-        refLoc <- refLocs
+        (ref, entries) <- Map.toList brokenRefs
+        entry <- Set.toList entries
         pure
-          ( refLoc.uri,
+          ( entry.loc.uri,
             [ LSP.Diagnostic
-                { _range = labelLocToLspRange refLoc,
+                { _range = labelLocToLspRange entry.loc,
                   _severity = Just LSP.DiagnosticSeverity_Error,
                   _code = Nothing,
                   _codeDescription = Nothing,
@@ -581,14 +592,14 @@ sendDiagnostics _logger state = do
           )
 
   let duplicateAnchorsDiagnostics = do
-        (anchor, anchorLocs) <- Map.toList duplicateAnchors
-        guard (length anchorLocs > 1)
-        anchorLoc <- anchorLocs
-        let otherLocs = filter (/= anchorLoc) anchorLocs
+        (anchor, entries) <- Map.toList duplicateAnchors
+        guard (length entries > 1)
+        entry <- Set.toList entries
+        let otherEntries = Set.filter (/= entry) entries
         pure
-          ( anchorLoc.uri,
+          ( entry.loc.uri,
             [ LSP.Diagnostic
-                { _range = labelLocToLspRange anchorLoc,
+                { _range = labelLocToLspRange entry.loc,
                   _severity = Just LSP.DiagnosticSeverity_Error,
                   _code = Nothing,
                   _codeDescription = Nothing,
@@ -597,9 +608,9 @@ sendDiagnostics _logger state = do
                   _tags = Nothing,
                   _relatedInformation =
                     Just $
-                      otherLocs <&> \otherLoc ->
+                      Set.toList otherEntries <&> \otherEntry ->
                         LSP.DiagnosticRelatedInformation
-                          { _location = labelLocToLspLocation otherLoc,
+                          { _location = labelLocToLspLocation otherEntry.loc,
                             _message = "Duplicate definition."
                           },
                   _data_ = Nothing
@@ -646,23 +657,13 @@ labelLocToLspLocation loc =
       _range = labelLocToLspRange loc
     }
 
-findSymbolAtPosition :: Uri -> LSP.Position -> Map symbol [LabelLoc] -> Maybe (symbol, LabelLoc)
+findSymbolAtPosition :: (SymbolIxsConstraint symbol) => Uri -> LSP.Position -> SymbolSet symbol -> Maybe (SymbolEntry symbol)
 findSymbolAtPosition reqUri reqPos symbols =
   let reqLine = reqPos ^. LSP.line
       reqColumn = reqPos ^. LSP.character
-   in symbols
-        & Map.toList
-        & Maybe.mapMaybe
-          ( \(ref, locs) -> do
-              refLoc <-
-                List.find
-                  ( \loc ->
-                      loc.uri == reqUri
-                        && loc.lineNum == reqLine
-                        && loc.columnRange.start <= reqColumn
-                        && reqColumn <= loc.columnRange.end
-                  )
-                  locs
-              Just (ref, refLoc)
-          )
-        & Maybe.listToMaybe
+   in Ix.getOne $
+        symbols
+          @= reqUri
+          @= LineNum reqLine
+          @<= ColumnStart reqColumn
+          @>= ColumnEnd reqColumn
