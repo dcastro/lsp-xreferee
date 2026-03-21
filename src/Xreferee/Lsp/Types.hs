@@ -40,7 +40,7 @@ type SymbolSet symbol =
 -- | An entry in the symbols table, representing a single symbol occurrence and its location.
 data SymbolEntry symbol = SymbolEntry
   { symbol :: symbol,
-    loc :: LabelLoc
+    loc :: SymbolLoc
   }
   deriving stock (Show, Eq, Ord)
 
@@ -74,7 +74,7 @@ newtype ColumnStart = ColumnStart UInt deriving stock (Show, Eq, Ord)
 
 newtype ColumnEnd = ColumnEnd UInt deriving stock (Show, Eq, Ord)
 
-data LabelLoc = LabelLoc
+data SymbolLoc = SymbolLoc
   { uri :: Lsp.Uri,
     lineNum :: UInt,
     columnRange :: ColumnRange
@@ -98,11 +98,11 @@ mkSymbols workspaceDir sr =
     mkIxSet map = map & Map.toList >>= (\(symbol, locs) -> mkSymbolEntry symbol locs) & Ix.fromList
 
     mkSymbolEntry :: forall symbol. symbol -> [X.LabelLoc] -> [SymbolEntry symbol]
-    mkSymbolEntry sym locs = locs <&> \loc -> SymbolEntry {symbol = sym, loc = mkLabelLoc loc}
+    mkSymbolEntry sym locs = locs <&> \loc -> SymbolEntry {symbol = sym, loc = mkSymbolLoc loc}
 
-    mkLabelLoc :: X.LabelLoc -> LabelLoc
-    mkLabelLoc l =
-      LabelLoc
+    mkSymbolLoc :: X.LabelLoc -> SymbolLoc
+    mkSymbolLoc l =
+      SymbolLoc
         { uri = Lsp.filePathToUri $ workspaceDir </> l.filepath,
           lineNum = xToLsp l.lineNum,
           columnRange = mkColumnRange l.columnRange

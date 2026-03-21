@@ -40,7 +40,7 @@ import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.AppM qualified as App
-import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LabelLoc (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolSet, Symbols (..))
+import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
 main :: IO ()
@@ -218,7 +218,7 @@ handleDefinition _logger = \req responder -> do
                         { _start = LSP.Position refEntry.loc.lineNum refEntry.loc.columnRange.start,
                           _end = LSP.Position refEntry.loc.lineNum (refEntry.loc.columnRange.end + 1)
                         }
-                    anchorRange = labelLocToLspRange anchorEntry.loc
+                    anchorRange = symbolLocToLspRange anchorEntry.loc
                  in LSP.DefinitionLink
                       LSP.LocationLink
                         { _originSelectionRange = Just refRange,
@@ -241,7 +241,7 @@ handleReferences _logger = \req responder -> do
     Just anchorEntry -> do
       -- Find the corresponding references
       let ref = anchorEntry.symbol & X.toLabel & X.fromLabel @X.Reference
-      let locs = state.symbols.references @= ref & Ix.toList <&> \refEntry -> labelLocToLspLocation refEntry.loc
+      let locs = state.symbols.references @= ref & Ix.toList <&> \refEntry -> symbolLocToLspLocation refEntry.loc
       responder $ Right $ LSP.InL locs
 
 -- | Handle `didOpen` notifications.
@@ -272,7 +272,7 @@ handleDidOpen logger = \req -> do
                         SymbolEntry
                           { symbol = sym,
                             loc =
-                              LabelLoc
+                              SymbolLoc
                                 { uri,
                                   lineNum,
                                   columnRange = Types.mkColumnRange columnRange
@@ -343,7 +343,7 @@ handleDidChange logger = \req -> do
                           SymbolEntry
                             { symbol = sym,
                               loc =
-                                LabelLoc
+                                SymbolLoc
                                   { uri,
                                     lineNum,
                                     columnRange = Types.mkColumnRange columnRange
@@ -464,7 +464,7 @@ handlePrepareRename _logger = \req responder -> do
 
   case maybeMatch of
     Nothing -> responder $ Right $ LSP.InR LSP.Null
-    Just (label, loc) ->
+    Just (symbol, loc) ->
       responder $
         Right $
           LSP.InL $
@@ -472,8 +472,8 @@ handlePrepareRename _logger = \req responder -> do
               LSP.InR $
                 LSP.InL $
                   LSP.PrepareRenamePlaceholder
-                    { _range = labelLocToLspRange loc,
-                      _placeholder = label
+                    { _range = symbolLocToLspRange loc,
+                      _placeholder = symbol
                     }
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename
@@ -504,7 +504,7 @@ handleRename _logger = \req responder -> do
                 Set.toList entries
                   <&> \entry ->
                     LSP.TextEdit
-                      { _range = labelLocToLspRange entry.loc,
+                      { _range = symbolLocToLspRange entry.loc,
                         _newText = newLabelName & X.fromLabel @X.Anchor & X.renderLabel
                       }
 
@@ -516,7 +516,7 @@ handleRename _logger = \req responder -> do
                 Set.toList entries
                   <&> \entry ->
                     LSP.TextEdit
-                      { _range = labelLocToLspRange entry.loc,
+                      { _range = symbolLocToLspRange entry.loc,
                         _newText = newLabelName & X.fromLabel @X.Reference & X.renderLabel
                       }
 
@@ -559,7 +559,7 @@ sendDiagnostics _logger state = do
         pure
           ( entry.loc.uri,
             [ LSP.Diagnostic
-                { _range = labelLocToLspRange entry.loc,
+                { _range = symbolLocToLspRange entry.loc,
                   _severity = Just LSP.DiagnosticSeverity_Warning,
                   _code = Nothing,
                   _codeDescription = Nothing,
@@ -578,7 +578,7 @@ sendDiagnostics _logger state = do
         pure
           ( entry.loc.uri,
             [ LSP.Diagnostic
-                { _range = labelLocToLspRange entry.loc,
+                { _range = symbolLocToLspRange entry.loc,
                   _severity = Just LSP.DiagnosticSeverity_Error,
                   _code = Nothing,
                   _codeDescription = Nothing,
@@ -599,7 +599,7 @@ sendDiagnostics _logger state = do
         pure
           ( entry.loc.uri,
             [ LSP.Diagnostic
-                { _range = labelLocToLspRange entry.loc,
+                { _range = symbolLocToLspRange entry.loc,
                   _severity = Just LSP.DiagnosticSeverity_Error,
                   _code = Nothing,
                   _codeDescription = Nothing,
@@ -610,7 +610,7 @@ sendDiagnostics _logger state = do
                     Just $
                       Set.toList otherEntries <&> \otherEntry ->
                         LSP.DiagnosticRelatedInformation
-                          { _location = labelLocToLspLocation otherEntry.loc,
+                          { _location = symbolLocToLspLocation otherEntry.loc,
                             _message = "Duplicate definition."
                           },
                   _data_ = Nothing
@@ -635,8 +635,8 @@ sendDiagnostics _logger state = do
 -- Helpers
 ----------------------------------------------------------------------------
 
-labelLocToLspRange :: LabelLoc -> LSP.Range
-labelLocToLspRange loc =
+symbolLocToLspRange :: SymbolLoc -> LSP.Range
+symbolLocToLspRange loc =
   LSP.Range
     { _start =
         LSP.Position
@@ -650,11 +650,11 @@ labelLocToLspRange loc =
           }
     }
 
-labelLocToLspLocation :: LabelLoc -> LSP.Location
-labelLocToLspLocation loc =
+symbolLocToLspLocation :: SymbolLoc -> LSP.Location
+symbolLocToLspLocation loc =
   LSP.Location
     { _uri = loc.uri,
-      _range = labelLocToLspRange loc
+      _range = symbolLocToLspRange loc
     }
 
 findSymbolAtPosition :: (SymbolIxsConstraint symbol) => Uri -> LSP.Position -> SymbolSet symbol -> Maybe (SymbolEntry symbol)
