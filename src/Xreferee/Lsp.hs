@@ -191,9 +191,9 @@ handle logger =
       requestHandler LSP.SMethod_TextDocumentPrepareRename (handlePrepareRename logger),
       requestHandler LSP.SMethod_TextDocumentRename (handleRename logger),
       requestHandler LSP.SMethod_TextDocumentDefinition (handleDefinition logger),
-      requestHandler LSP.SMethod_TextDocumentReferences (handleReferences logger),
+      requestHandler LSP.SMethod_TextDocumentReferences (handleReferences logger)
       -- Workspace events
-      notificationHandler LSP.SMethod_WorkspaceDidChangeWatchedFiles (handleDidChangeWatchesFiles logger)
+      -- NOTE: `workspace/didChangeWatchedFiles` must be registered dynamically, see `registerDidChangeWatchedFiles`
     ]
 
 -- | Ask the client to start watching files and sending `workspace/didChangeWatchedFiles` notifications.
@@ -208,21 +208,15 @@ registerDidChangeWatchedFiles logger = do
         LSP.DidChangeWatchedFilesRegistrationOptions
           { _watchers = [watcher]
           }
-      registration =
-        LSP.Registration
-          { _id = "xreferee.workspace.didChangeWatchedFiles",
-            _method = "workspace/didChangeWatchedFiles",
-            _registerOptions = Just $ J.toJSON registrationOptions
-          }
-      registrationParams = LSP.RegistrationParams {_registrations = [registration]}
 
-  _ <- sendRequest LSP.SMethod_ClientRegisterCapability registrationParams $ \case
-    Left err ->
-      logger <& ("Failed to register workspace/didChangeWatchedFiles watcher: " <> T.pack (show err)) `WithSeverity` Warning
-    Right _ ->
-      logger <& "Registered workspace/didChangeWatchedFiles watcher" `WithSeverity` Info
+  let coreLogger = L.cmap (fmap (T.pack . show . pretty)) logger
+  result <- LSP.registerCapability coreLogger LSP.SMethod_WorkspaceDidChangeWatchedFiles registrationOptions (handleDidChangeWatchedFiles logger)
 
-  pure ()
+  case result of
+    Nothing ->
+      logger <& "Failed to register workspace/didChangeWatchedFiles watcher." `WithSeverity` Warning
+    Just _token ->
+      logger <& "Registered workspace/didChangeWatchedFiles watcher." `WithSeverity` Info
 
 handleDefinition :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDefinition
 handleDefinition logger = \req responder -> do
@@ -356,8 +350,9 @@ handleDidOpen logger = \req -> do
           -- the next time the user opens it, the version will be reset to 1.
           fileVersion /= lastSeenVersion
 
-handleDidChangeWatchesFiles :: AppLogger -> Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
-handleDidChangeWatchesFiles logger = \req -> do
+-- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles
+handleDidChangeWatchedFiles :: AppLogger -> Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
+handleDidChangeWatchedFiles logger = \req -> do
   logNot' logger req
   pure ()
 
