@@ -175,6 +175,7 @@ handle :: AppLogger -> Handlers AppM
 handle logger =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
+        registerDidChangeWatchedFiles logger
         modifyState $ sendDiagnostics logger,
       notificationHandler LSP.SMethod_TextDocumentDidOpen (handleDidOpen logger),
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
@@ -190,11 +191,43 @@ handle logger =
       requestHandler LSP.SMethod_TextDocumentPrepareRename (handlePrepareRename logger),
       requestHandler LSP.SMethod_TextDocumentRename (handleRename logger),
       requestHandler LSP.SMethod_TextDocumentDefinition (handleDefinition logger),
-      requestHandler LSP.SMethod_TextDocumentReferences (handleReferences logger)
+      requestHandler LSP.SMethod_TextDocumentReferences (handleReferences logger),
+      -- Workspace events
+      notificationHandler LSP.SMethod_WorkspaceDidChangeWatchedFiles (handleDidChangeWatchesFiles logger)
     ]
 
+-- | Ask the client to start watching files and sending `workspace/didChangeWatchedFiles` notifications.
+registerDidChangeWatchedFiles :: AppLogger -> AppM ()
+registerDidChangeWatchedFiles logger = do
+  let watcher =
+        LSP.FileSystemWatcher
+          { _globPattern = LSP.GlobPattern $ LSP.InL $ LSP.Pattern "**/*",
+            _kind = Nothing
+          }
+      registrationOptions =
+        LSP.DidChangeWatchedFilesRegistrationOptions
+          { _watchers = [watcher]
+          }
+      registration =
+        LSP.Registration
+          { _id = "xreferee.workspace.didChangeWatchedFiles",
+            _method = "workspace/didChangeWatchedFiles",
+            _registerOptions = Just $ J.toJSON registrationOptions
+          }
+      registrationParams = LSP.RegistrationParams {_registrations = [registration]}
+
+  _ <- sendRequest LSP.SMethod_ClientRegisterCapability registrationParams $ \case
+    Left err ->
+      logger <& ("Failed to register workspace/didChangeWatchedFiles watcher: " <> T.pack (show err)) `WithSeverity` Warning
+    Right _ ->
+      logger <& "Registered workspace/didChangeWatchedFiles watcher" `WithSeverity` Info
+
+  pure ()
+
 handleDefinition :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDefinition
-handleDefinition _logger = \req responder -> do
+handleDefinition logger = \req responder -> do
+  logReq' logger req
+
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
 
@@ -229,7 +262,9 @@ handleDefinition _logger = \req responder -> do
       responder $ Right $ LSP.InR (LSP.InL links)
 
 handleReferences :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentReferences
-handleReferences _logger = \req responder -> do
+handleReferences logger = \req responder -> do
+  logReq' logger req
+
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
 
@@ -316,7 +351,15 @@ handleDidOpen logger = \req -> do
     checkIsDirty :: Uri -> Int32 -> AppState -> Bool
     checkIsDirty uri fileVersion appState =
       let lastSeenVersion = SM.findWithDefault 1 uri appState.fileVersions
-       in fileVersion /= lastSeenVersion
+       in -- NOTE: versions are not strictly monotonic.
+          -- If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
+          -- the next time the user opens it, the version will be reset to 1.
+          fileVersion /= lastSeenVersion
+
+handleDidChangeWatchesFiles :: AppLogger -> Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
+handleDidChangeWatchesFiles logger = \req -> do
+  logNot' logger req
+  pure ()
 
 handleDidChange :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange logger = \req -> do
@@ -478,7 +521,9 @@ handlePrepareRename _logger = \req responder -> do
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename
 handleRename :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentRename
-handleRename _logger = \req responder -> do
+handleRename logger = \req responder -> do
+  logReq' logger req
+
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position
   let newLabelName = req ^. LSP.params . LSP.newName
