@@ -34,12 +34,12 @@ import Prettyprinter
 import System.Directory qualified as Dir
 import System.Exit
 import System.IO
-import Text.Pretty.Simple (pShowNoColor)
 import Unsafe.Coerce qualified as Unsafe
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.AppM qualified as App
+import Xreferee.Lsp.Log
 import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
@@ -154,22 +154,6 @@ lspOptions =
 
 -- ---------------------------------------------------------------------
 
-logReq :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TRequestMessage a -> AppM ()
-logReq logger msg = do
-  logger <& (LT.toStrict $ pShowNoColor msg) `WithSeverity` Debug
-
-logNot :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TNotificationMessage a -> AppM ()
-logNot logger msg = do
-  logger <& (LT.toStrict $ pShowNoColor msg) `WithSeverity` Debug
-
-logReq' :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TRequestMessage a -> AppM ()
-logReq' logger msg = do
-  logger <& (T.pack $ show msg) `WithSeverity` Debug
-
-logNot' :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TNotificationMessage a -> AppM ()
-logNot' logger msg = do
-  logger <& (T.pack $ show msg) `WithSeverity` Debug
-
 -- | Where the actual logic resides for handling requests and notifications.
 handle :: AppLogger -> Handlers AppM
 handle logger =
@@ -220,7 +204,7 @@ registerDidChangeWatchedFiles logger = do
 
 handleDefinition :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDefinition
 handleDefinition logger = \req responder -> do
-  logReq' logger req
+  logReq logger req
 
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
@@ -257,7 +241,7 @@ handleDefinition logger = \req responder -> do
 
 handleReferences :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentReferences
 handleReferences logger = \req responder -> do
-  logReq' logger req
+  logReq logger req
 
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
@@ -286,7 +270,7 @@ handleReferences logger = \req responder -> do
 -- and if so, it reparses the file and updates the symbols.
 handleDidOpen :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidOpen
 handleDidOpen logger = \req -> do
-  logNot' logger req
+  logNot logger req
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text
@@ -353,12 +337,12 @@ handleDidOpen logger = \req -> do
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles
 handleDidChangeWatchedFiles :: AppLogger -> Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeWatchedFiles logger = \req -> do
-  logNot' logger req
+  logNot logger req
   pure ()
 
 handleDidChange :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange logger = \req -> do
-  logNot' logger req
+  logNot logger req
 
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   vf <- Maybe.fromJust <$> LSP.getVirtualFile (LSP.toNormalizedUri uri)
@@ -517,7 +501,7 @@ handlePrepareRename _logger = \req responder -> do
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename
 handleRename :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentRename
 handleRename logger = \req responder -> do
-  logReq' logger req
+  logReq logger req
 
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position
