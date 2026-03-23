@@ -1,25 +1,20 @@
 module Xreferee.Lsp where
 
+import ClassyPrelude hiding (Handler)
 import Colog.Core (LogAction (..), Severity (..), WithSeverity (..), (<&))
 import Colog.Core qualified as L
-import Control.Concurrent
 import Control.Exception qualified as E
 import Control.Lens hiding (Indexable, Iso)
-import Control.Monad
-import Control.Monad.IO.Class
 import Data.Aeson qualified as J
-import Data.Int (Int32)
 import Data.IxSet.Typed ((@<=), (@=), (@>), (@>=), (@>=<=))
 import Data.IxSet.Typed qualified as Ix
 import Data.IxSet.Typed.Util qualified as Ix
-import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Map.Strict qualified as SM
 import Data.Maybe qualified as Maybe
-import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as T
 import Data.Text.Lazy qualified as LT
 import Data.Text.Mixed.Rope qualified as Rope
 import Language.LSP.Diagnostics
@@ -33,7 +28,6 @@ import Language.LSP.VFS qualified as VFS
 import Prettyprinter
 import System.Directory qualified as Dir
 import System.Exit
-import System.IO
 import Unsafe.Coerce qualified as Unsafe
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
@@ -75,7 +69,7 @@ run = flip E.catches handlers $ do
       clientLogger = defaultClientLogger
 
       fileLogger :: LogAction IO (WithSeverity Text)
-      fileLogger = LogAction $ \msg -> hPutStrLn logFileHandle (T.unpack $ getMsg msg)
+      fileLogger = LogAction $ \msg -> T.hPutStrLn logFileHandle (getMsg msg)
 
       allLoggers :: (MonadLsp Config m) => LogAction m (WithSeverity Text)
       allLoggers =
@@ -97,12 +91,12 @@ run = flip E.catches handlers $ do
             doInitialize = \env _initializeMsg -> do
               appState <- initialize fileLogger >>= newMVar
               pure (Right (env, appState)),
-            staticHandlers = \_caps -> handle allLoggers,
+            staticHandlers = \_caps -> mkHandlers allLoggers,
             interpretHandler = \(env, appState) -> Iso (runAppM appState env) liftIO,
             options = lspOptions
           }
 
-  let logToText = T.pack . show . pretty
+  let logToText = tshow . pretty
   runServerWithHandles
     -- Log to both the client and stderr when we can, stderr beforehand
     (L.cmap (fmap logToText) (stderrLogger <> fileLogger))
@@ -119,11 +113,10 @@ run = flip E.catches handlers $ do
     someExcept (e :: E.SomeException) = print e >> return 1
 
 initialize :: LogAction IO (WithSeverity Text) -> IO AppState
-initialize logger = do
+initialize _logger = do
   searchResult <- liftIO $ X.findRefsFromGit searchOpts
   workspaceDir <- Dir.getCurrentDirectory
   let symbols = Types.mkSymbols workspaceDir searchResult
-  logger <& ("Symbols: " <> (T.pack $ show symbols)) `WithSeverity` Debug
   pure
     AppState
       { symbols,
@@ -155,8 +148,8 @@ lspOptions =
 -- ---------------------------------------------------------------------
 
 -- | Where the actual logic resides for handling requests and notifications.
-handle :: AppLogger -> Handlers AppM
-handle logger =
+mkHandlers :: AppLogger -> Handlers AppM
+mkHandlers logger =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
         registerDidChangeWatchedFiles logger
@@ -167,10 +160,10 @@ handle logger =
         pure (),
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \msg -> do
         cfg <- getConfig
-        logger L.<& ("Configuration changed: " <> T.pack (show (msg, cfg))) `WithSeverity` Info
+        logger L.<& ("Configuration changed: " <> tshow (msg, cfg)) `WithSeverity` Info
         sendNotification LSP.SMethod_WindowShowMessage $
           LSP.ShowMessageParams LSP.MessageType_Info $
-            "Wibble factor set to " <> T.pack (show cfg.wibbleFactor),
+            "Wibble factor set to " <> tshow cfg.wibbleFactor,
       notificationHandler LSP.SMethod_TextDocumentDidChange (handleDidChange logger),
       requestHandler LSP.SMethod_TextDocumentPrepareRename (handlePrepareRename logger),
       requestHandler LSP.SMethod_TextDocumentRename (handleRename logger),
@@ -193,7 +186,7 @@ registerDidChangeWatchedFiles logger = do
           { _watchers = [watcher]
           }
 
-  let coreLogger = L.cmap (fmap (T.pack . show . pretty)) logger
+  let coreLogger = L.cmap (fmap (tshow . pretty)) logger
   result <- LSP.registerCapability coreLogger LSP.SMethod_WorkspaceDidChangeWatchedFiles registrationOptions (handleDidChangeWatchedFiles logger)
 
   case result of

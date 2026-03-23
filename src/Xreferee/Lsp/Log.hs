@@ -1,7 +1,7 @@
 module Xreferee.Lsp.Log where
 
+import ClassyPrelude
 import Colog.Core (Severity (..), WithSeverity (..), (<&))
-import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as LT
 import Language.LSP.Protocol.Message qualified as LSP

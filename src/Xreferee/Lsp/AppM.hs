@@ -1,16 +1,10 @@
 module Xreferee.Lsp.AppM where
 
+import ClassyPrelude
 import Colog.Core (LogAction (..), WithSeverity (..))
-import Control.Concurrent
 import Control.Lens hiding (Iso)
-import Control.Monad.IO.Class
-import Control.Monad.Reader (ReaderT (runReaderT), ask)
 import Data.Aeson qualified as J
-import Data.Int (Int32)
 import Data.Map.Strict qualified as SM
-import Data.Set (Set)
-import Data.Text (Text)
-import GHC.Generics (Generic)
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
 import UnliftIO.MVar qualified as Unlift

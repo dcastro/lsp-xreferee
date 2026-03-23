@@ -1,14 +1,13 @@
 module Xreferee.Lsp.Types where
 
+import ClassyPrelude
 import Control.Lens hiding (Indexable, Iso)
 import Data.IxSet.Typed (Indexable (..), IxSet)
 import Data.IxSet.Typed qualified as Ix
 import Data.Kind (Type)
-import Data.Map (Map)
 import Data.Map qualified as Map
 import Language.LSP.Protocol.Types (UInt)
 import Language.LSP.Protocol.Types qualified as Lsp
-import System.FilePath ((</>))
 import XReferee.SearchResult (SearchResult (..))
 import XReferee.SearchResult qualified as X
 
