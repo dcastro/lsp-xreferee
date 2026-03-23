@@ -429,8 +429,7 @@ applyChanges _logger symbols uri diffs =
                         & Ix.toList
                         <&> (\entry -> entry {loc = entry.loc {lineNum = entry.loc.lineNum + lineDelta}})
                         & Ix.fromList
-                 in allSymbols
-                      & Ix.difference entriesToShift
+                 in Ix.difference allSymbols entriesToShift
                       & Ix.union shiftedEntries
 
               -- Update the line numbers we need to reparse.
