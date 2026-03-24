@@ -28,6 +28,7 @@ import Language.LSP.VFS qualified as VFS
 import Prettyprinter
 import System.Directory qualified as Dir
 import System.Exit
+import System.FilePath qualified as FP
 import Unsafe.Coerce qualified as Unsafe
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
@@ -268,56 +269,12 @@ handleDidOpen logger = \req -> do
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text
 
-  -- Parse the symbols for this file
-  let newSymbols =
-        (T.lines contents `zip` [0 ..])
-          <&> ( \(line, lineNum) ->
-                  let (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
-                      mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
-                      mkSymbolEntry sym columnRange =
-                        SymbolEntry
-                          { symbol = sym,
-                            loc =
-                              SymbolLoc
-                                { uri,
-                                  lineNum,
-                                  columnRange = Types.mkColumnRange columnRange
-                                }
-                          }
-                   in Symbols
-                        { anchors = anchors <&> uncurry mkSymbolEntry & Ix.fromList,
-                          references = refs <&> uncurry mkSymbolEntry & Ix.fromList
-                        }
-              )
-          & mconcat
-
   modifyState \appState0 -> do
     if not (checkIsDirty uri fileVersion appState0)
       then
         pure appState0
       else do
-        -- Remove the symbols for this file
-        let appState1 =
-              appState0
-                { App.symbols =
-                    appState0.symbols
-                      { anchors = Ix.deleteMany appState0.symbols.anchors (\anchors -> anchors @= uri),
-                        references = Ix.deleteMany appState0.symbols.references (\references -> references @= uri)
-                      }
-                }
-
-        -- Add the new symbols for this file
-        let appState2 =
-              appState1
-                { symbols = appState1.symbols <> newSymbols,
-                  -- Update the version we have for this file.
-                  fileVersions = SM.insert uri fileVersion appState1.fileVersions
-                }
-
-        -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
-        if appState0.symbols == appState2.symbols
-          then pure appState2
-          else sendDiagnostics logger appState2
+        loadSymbolsForFile logger uri contents fileVersion appState0
   where
     checkIsDirty :: Uri -> Int32 -> AppState -> Bool
     checkIsDirty uri fileVersion appState =
@@ -331,7 +288,46 @@ handleDidOpen logger = \req -> do
 handleDidChangeWatchedFiles :: AppLogger -> Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeWatchedFiles logger = \req -> do
   logNot logger req
-  pure ()
+
+  forM_ (req ^. LSP.params . LSP.changes) \fileEvent -> do
+    let uri = fileEvent ^. LSP.uri
+    when (shouldHandleFile uri) $
+      case fileEvent ^. LSP.type_ of
+        LSP.FileChangeType_Changed -> do
+          -- NOTE: when a file is changed on disk AND is open in the editor, either:
+          --  * The user edited the file and saved the changes
+          --      * in which case we don't need to handle it here
+          --  * The file was changed on disk, and the editor buffer was updated as a result
+          --      * e.g. the user switched git branches
+          --      * in which case we also don't need to handle it here, because we'll receive a `didChange` notification with the new contents of the file.
+          --  * The file was changed on disk, but the editor buffer was not updated
+          --      * e.g. the user has unsaved changes in the editor and then switches branches
+          --      * The file on disk and the editor buffer are now out of sync. We prioritize the buffer, so we don't need to handle this event.
+          --
+          -- In other words: we only care about this event if the file is NOT open in the editor.
+          unlessM (isFileOpen uri) do
+            debug logger $ "Reloading file from disk: " <> tshow uri
+            contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
+            -- NOTE: If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
+            -- the next time the user opens it, the version will be reset to 1.
+            let fileVersion = 1
+            modifyState $ loadSymbolsForFile logger uri contents fileVersion
+        LSP.FileChangeType_Deleted -> do
+          debug logger $ "FILE DELETED: " <> tshow uri
+        LSP.FileChangeType_Created -> do
+          debug logger $ "FILE CREATED: " <> tshow uri
+  where
+    isFileOpen :: Uri -> AppM Bool
+    isFileOpen uri = do
+      vf <- getVirtualFile (LSP.toNormalizedUri uri)
+      pure $ Maybe.isJust vf
+
+    -- Ignore files we're not interested in, e.g. `./git` files.
+    shouldHandleFile :: Uri -> Bool
+    shouldHandleFile uri =
+      case LSP.uriToFilePath uri of
+        Nothing -> False
+        Just fp -> not $ ".git" `elem` FP.splitDirectories fp
 
 handleDidChange :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange logger = \req -> do
@@ -370,6 +366,7 @@ handleDidChange logger = \req -> do
                           }
                 )
             & mconcat
+
         appState1 =
           appState0
             { symbols = symbols1 <> newSymbols,
@@ -650,6 +647,55 @@ sendDiagnostics _logger state = do
 ----------------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------------
+
+loadSymbolsForFile :: AppLogger -> Uri -> Text -> Int32 -> AppState -> AppM AppState
+loadSymbolsForFile logger uri contents fileVersion appState0 = do
+  -- Remove the symbols for this file
+  let appState1 =
+        appState0
+          { App.symbols =
+              appState0.symbols
+                { anchors = Ix.deleteMany appState0.symbols.anchors (\anchors -> anchors @= uri),
+                  references = Ix.deleteMany appState0.symbols.references (\references -> references @= uri)
+                }
+          }
+
+  -- Parse the new symbols for this file
+  let newSymbols = parseFile contents uri
+  let appState2 =
+        appState1
+          { symbols = appState1.symbols <> newSymbols,
+            -- Update the version we have for this file.
+            fileVersions = SM.insert uri fileVersion appState1.fileVersions
+          }
+
+  -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
+  if appState0.symbols == appState2.symbols
+    then pure appState2
+    else sendDiagnostics logger appState2
+  where
+    parseFile :: Text -> Uri -> Symbols
+    parseFile contents uri =
+      (T.lines contents `zip` [0 ..])
+        <&> ( \(line, lineNum) ->
+                let (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
+                    mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
+                    mkSymbolEntry sym columnRange =
+                      SymbolEntry
+                        { symbol = sym,
+                          loc =
+                            SymbolLoc
+                              { uri,
+                                lineNum,
+                                columnRange = Types.mkColumnRange columnRange
+                              }
+                        }
+                 in Symbols
+                      { anchors = anchors <&> uncurry mkSymbolEntry & Ix.fromList,
+                        references = refs <&> uncurry mkSymbolEntry & Ix.fromList
+                      }
+            )
+        & mconcat
 
 symbolLocToLspRange :: SymbolLoc -> LSP.Range
 symbolLocToLspRange loc =
