@@ -29,11 +29,11 @@ import Prettyprinter
 import System.Directory qualified as Dir
 import System.Exit
 import System.FilePath qualified as FP
+import UnliftIO qualified as Unlift
 import Unsafe.Coerce qualified as Unsafe
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
-import Xreferee.Lsp.AppM qualified as App
 import Xreferee.Lsp.Log
 import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
@@ -154,7 +154,7 @@ mkHandlers logger =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
         registerDidChangeWatchedFiles logger
-        modifyState $ sendDiagnostics logger,
+        modifyState logger $ sendDiagnostics logger,
       notificationHandler LSP.SMethod_TextDocumentDidOpen (handleDidOpen logger),
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
@@ -269,12 +269,12 @@ handleDidOpen logger = \req -> do
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text
 
-  modifyState \appState0 -> do
+  modifyState logger \appState0 -> do
     if not (checkIsDirty uri fileVersion appState0)
       then
         pure appState0
       else do
-        loadSymbolsForFile logger uri contents fileVersion appState0
+        pure $ loadSymbolsForFile uri contents fileVersion appState0
   where
     checkIsDirty :: Uri -> Int32 -> AppState -> Bool
     checkIsDirty uri fileVersion appState =
@@ -311,11 +311,19 @@ handleDidChangeWatchedFiles logger = \req -> do
             -- NOTE: If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
             -- the next time the user opens it, the version will be reset to 1.
             let fileVersion = 1
-            modifyState $ loadSymbolsForFile logger uri contents fileVersion
-        LSP.FileChangeType_Deleted -> do
-          debug logger $ "FILE DELETED: " <> tshow uri
+            modifyState logger $ pure . loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Created -> do
-          debug logger $ "FILE CREATED: " <> tshow uri
+          -- NOTE: when a file is created via the editor, we'll receive a `didOpen` notification followed by a `didChangeWatchedFiles`,
+          -- so we don't need to handle it here.
+          -- When it's created outside the editor, we'll only receive a `didChangeWatchedFiles`.
+          unlessM (isFileOpen uri) do
+            debug logger $ "Loading file from disk: " <> tshow uri
+            contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
+            let fileVersion = 1
+            modifyState logger $ pure . loadSymbolsForFile uri contents fileVersion
+        LSP.FileChangeType_Deleted -> do
+          debug logger $ "Deleting symbols for file: " <> tshow uri
+          modifyState logger $ pure . deleteSymbolsForFile uri
   where
     isFileOpen :: Uri -> AppM Bool
     isFileOpen uri = do
@@ -339,7 +347,7 @@ handleDidChange logger = \req -> do
 
   let diffs = req ^. LSP.params . LSP.contentChanges
 
-  modifyState \appState0 -> do
+  modifyState logger \appState0 -> do
     -- Apply the diffs to our symbols tables
     ApplyChangesResult linesToParse symbols1 <- applyChanges logger appState0.symbols uri diffs
 
@@ -367,17 +375,12 @@ handleDidChange logger = \req -> do
                 )
             & mconcat
 
-        appState1 =
-          appState0
-            { symbols = symbols1 <> newSymbols,
-              -- Update the version we have for this file.
-              fileVersions = SM.insert uri (vf ^. VFS.lsp_version) appState0.fileVersions
-            }
-
-    -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
-    if appState0.symbols == appState1.symbols
-      then pure appState1
-      else sendDiagnostics logger appState1
+    pure
+      appState0
+        { symbols = symbols1 <> newSymbols,
+          -- Update the version we have for this file.
+          fileVersions = SM.insert uri (vf ^. VFS.lsp_version) appState0.fileVersions
+        }
 
 -- | Calculates which lines we'll need to reparse after applying the given diffs.
 -- Removes anchors/refs that are on lines that were modified by the diffs,
@@ -648,31 +651,40 @@ sendDiagnostics _logger state = do
 -- Helpers
 ----------------------------------------------------------------------------
 
-loadSymbolsForFile :: AppLogger -> Uri -> Text -> Int32 -> AppState -> AppM AppState
-loadSymbolsForFile logger uri contents fileVersion appState0 = do
-  -- Remove the symbols for this file
-  let appState1 =
-        appState0
-          { App.symbols =
-              appState0.symbols
-                { anchors = Ix.deleteMany appState0.symbols.anchors (\anchors -> anchors @= uri),
-                  references = Ix.deleteMany appState0.symbols.references (\references -> references @= uri)
-                }
-          }
+modifyState :: AppLogger -> (AppState -> AppM AppState) -> AppM ()
+modifyState logger act = do
+  stateVar <- ask
+  Unlift.modifyMVar_ stateVar \appState0 -> do
+    appState1 <- act appState0
 
-  -- Parse the new symbols for this file
-  let newSymbols = parseFile contents uri
-  let appState2 =
-        appState1
-          { symbols = appState1.symbols <> newSymbols,
-            -- Update the version we have for this file.
-            fileVersions = SM.insert uri fileVersion appState1.fileVersions
-          }
+    -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
+    if appState0.symbols == appState1.symbols
+      then pure appState1
+      else sendDiagnostics logger appState1
 
-  -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
-  if appState0.symbols == appState2.symbols
-    then pure appState2
-    else sendDiagnostics logger appState2
+deleteSymbolsForFile :: Uri -> AppState -> AppState
+deleteSymbolsForFile uri appState =
+  appState
+    { symbols =
+        appState.symbols
+          { anchors = Ix.deleteMany appState.symbols.anchors (\anchors -> anchors @= uri),
+            references = Ix.deleteMany appState.symbols.references (\references -> references @= uri)
+          },
+      fileVersions = SM.delete uri appState.fileVersions
+    }
+
+loadSymbolsForFile :: Uri -> Text -> Int32 -> AppState -> AppState
+loadSymbolsForFile uri contents fileVersion appState0 =
+  let -- Remove the symbols for this file
+      appState1 = deleteSymbolsForFile uri appState0
+
+      -- Parse the new symbols for this file
+      newSymbols = parseFile contents uri
+   in appState1
+        { symbols = appState1.symbols <> newSymbols,
+          -- Update the version we have for this file.
+          fileVersions = SM.insert uri fileVersion appState1.fileVersions
+        }
   where
     parseFile :: Text -> Uri -> Symbols
     parseFile contents uri =

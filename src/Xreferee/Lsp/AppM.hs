@@ -7,7 +7,6 @@ import Data.Aeson qualified as J
 import Data.Map.Strict qualified as SM
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
-import UnliftIO.MVar qualified as Unlift
 import Xreferee.Lsp.Types (Symbols)
 
 type AppM = ReaderT (MVar AppState) (LspM Config)
@@ -24,11 +23,6 @@ getState :: AppM AppState
 getState = do
   stateVar <- ask
   liftIO $ readMVar stateVar
-
-modifyState :: (AppState -> AppM AppState) -> AppM ()
-modifyState act = do
-  stateVar <- ask
-  Unlift.modifyMVar_ stateVar act
 
 ----------------------------------------------------------------------------
 -- Config
