@@ -38,6 +38,7 @@ dependencies:
   - unliftio
   - filepath
   - ixset-typed
+  - classy-prelude
 
 ghc-options:
   - -Weverything
@@ -66,6 +67,7 @@ default-extensions:
   - BlockArguments
   - DeriveAnyClass
   - OverloadedStrings
+  - NoImplicitPrelude
 
 library:
   source-dirs: src

@@ -1,25 +1,20 @@
 module Xreferee.Lsp where
 
+import ClassyPrelude hiding (Handler)
 import Colog.Core (LogAction (..), Severity (..), WithSeverity (..), (<&))
 import Colog.Core qualified as L
-import Control.Concurrent
 import Control.Exception qualified as E
 import Control.Lens hiding (Indexable, Iso)
-import Control.Monad
-import Control.Monad.IO.Class
 import Data.Aeson qualified as J
-import Data.Int (Int32)
 import Data.IxSet.Typed ((@<=), (@=), (@>), (@>=), (@>=<=))
 import Data.IxSet.Typed qualified as Ix
 import Data.IxSet.Typed.Util qualified as Ix
-import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Map.Strict qualified as SM
 import Data.Maybe qualified as Maybe
-import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as T
 import Data.Text.Lazy qualified as LT
 import Data.Text.Mixed.Rope qualified as Rope
 import Language.LSP.Diagnostics
@@ -33,13 +28,13 @@ import Language.LSP.VFS qualified as VFS
 import Prettyprinter
 import System.Directory qualified as Dir
 import System.Exit
-import System.IO
-import Text.Pretty.Simple (pShowNoColor)
+import System.FilePath qualified as FP
 import Unsafe.Coerce qualified as Unsafe
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.AppM qualified as App
+import Xreferee.Lsp.Log
 import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
@@ -75,7 +70,7 @@ run = flip E.catches handlers $ do
       clientLogger = defaultClientLogger
 
       fileLogger :: LogAction IO (WithSeverity Text)
-      fileLogger = LogAction $ \msg -> hPutStrLn logFileHandle (T.unpack $ getMsg msg)
+      fileLogger = LogAction $ \msg -> T.hPutStrLn logFileHandle (getMsg msg)
 
       allLoggers :: (MonadLsp Config m) => LogAction m (WithSeverity Text)
       allLoggers =
@@ -97,12 +92,12 @@ run = flip E.catches handlers $ do
             doInitialize = \env _initializeMsg -> do
               appState <- initialize fileLogger >>= newMVar
               pure (Right (env, appState)),
-            staticHandlers = \_caps -> handle allLoggers,
+            staticHandlers = \_caps -> mkHandlers allLoggers,
             interpretHandler = \(env, appState) -> Iso (runAppM appState env) liftIO,
             options = lspOptions
           }
 
-  let logToText = T.pack . show . pretty
+  let logToText = tshow . pretty
   runServerWithHandles
     -- Log to both the client and stderr when we can, stderr beforehand
     (L.cmap (fmap logToText) (stderrLogger <> fileLogger))
@@ -119,11 +114,10 @@ run = flip E.catches handlers $ do
     someExcept (e :: E.SomeException) = print e >> return 1
 
 initialize :: LogAction IO (WithSeverity Text) -> IO AppState
-initialize logger = do
+initialize _logger = do
   searchResult <- liftIO $ X.findRefsFromGit searchOpts
   workspaceDir <- Dir.getCurrentDirectory
   let symbols = Types.mkSymbols workspaceDir searchResult
-  logger <& ("Symbols: " <> (T.pack $ show symbols)) `WithSeverity` Debug
   pure
     AppState
       { symbols,
@@ -154,27 +148,12 @@ lspOptions =
 
 -- ---------------------------------------------------------------------
 
-logReq :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TRequestMessage a -> AppM ()
-logReq logger msg = do
-  logger <& (LT.toStrict $ pShowNoColor msg) `WithSeverity` Debug
-
-logNot :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TNotificationMessage a -> AppM ()
-logNot logger msg = do
-  logger <& (LT.toStrict $ pShowNoColor msg) `WithSeverity` Debug
-
-logReq' :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TRequestMessage a -> AppM ()
-logReq' logger msg = do
-  logger <& (T.pack $ show msg) `WithSeverity` Debug
-
-logNot' :: (Show (LSP.MessageParams a)) => AppLogger -> LSP.TNotificationMessage a -> AppM ()
-logNot' logger msg = do
-  logger <& (T.pack $ show msg) `WithSeverity` Debug
-
 -- | Where the actual logic resides for handling requests and notifications.
-handle :: AppLogger -> Handlers AppM
-handle logger =
+mkHandlers :: AppLogger -> Handlers AppM
+mkHandlers logger =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
+        registerDidChangeWatchedFiles logger
         modifyState $ sendDiagnostics logger,
       notificationHandler LSP.SMethod_TextDocumentDidOpen (handleDidOpen logger),
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
@@ -182,19 +161,45 @@ handle logger =
         pure (),
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \msg -> do
         cfg <- getConfig
-        logger L.<& ("Configuration changed: " <> T.pack (show (msg, cfg))) `WithSeverity` Info
+        logger L.<& ("Configuration changed: " <> tshow (msg, cfg)) `WithSeverity` Info
         sendNotification LSP.SMethod_WindowShowMessage $
           LSP.ShowMessageParams LSP.MessageType_Info $
-            "Wibble factor set to " <> T.pack (show cfg.wibbleFactor),
+            "Wibble factor set to " <> tshow cfg.wibbleFactor,
       notificationHandler LSP.SMethod_TextDocumentDidChange (handleDidChange logger),
       requestHandler LSP.SMethod_TextDocumentPrepareRename (handlePrepareRename logger),
       requestHandler LSP.SMethod_TextDocumentRename (handleRename logger),
       requestHandler LSP.SMethod_TextDocumentDefinition (handleDefinition logger),
       requestHandler LSP.SMethod_TextDocumentReferences (handleReferences logger)
+      -- Workspace events
+      -- NOTE: `workspace/didChangeWatchedFiles` must be registered dynamically, see `registerDidChangeWatchedFiles`
     ]
 
+-- | Ask the client to start watching files and sending `workspace/didChangeWatchedFiles` notifications.
+registerDidChangeWatchedFiles :: AppLogger -> AppM ()
+registerDidChangeWatchedFiles logger = do
+  let watcher =
+        LSP.FileSystemWatcher
+          { _globPattern = LSP.GlobPattern $ LSP.InL $ LSP.Pattern "**/*",
+            _kind = Nothing
+          }
+      registrationOptions =
+        LSP.DidChangeWatchedFilesRegistrationOptions
+          { _watchers = [watcher]
+          }
+
+  let coreLogger = L.cmap (fmap (tshow . pretty)) logger
+  result <- LSP.registerCapability coreLogger LSP.SMethod_WorkspaceDidChangeWatchedFiles registrationOptions (handleDidChangeWatchedFiles logger)
+
+  case result of
+    Nothing ->
+      logger <& "Failed to register workspace/didChangeWatchedFiles watcher." `WithSeverity` Warning
+    Just _token ->
+      logger <& "Registered workspace/didChangeWatchedFiles watcher." `WithSeverity` Info
+
 handleDefinition :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDefinition
-handleDefinition _logger = \req responder -> do
+handleDefinition logger = \req responder -> do
+  logReq logger req
+
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
 
@@ -229,7 +234,9 @@ handleDefinition _logger = \req responder -> do
       responder $ Right $ LSP.InR (LSP.InL links)
 
 handleReferences :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentReferences
-handleReferences _logger = \req responder -> do
+handleReferences logger = \req responder -> do
+  logReq logger req
+
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
 
@@ -257,70 +264,74 @@ handleReferences _logger = \req responder -> do
 -- and if so, it reparses the file and updates the symbols.
 handleDidOpen :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidOpen
 handleDidOpen logger = \req -> do
-  logNot' logger req
+  logNot logger req
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text
-
-  -- Parse the symbols for this file
-  let newSymbols =
-        (T.lines contents `zip` [0 ..])
-          <&> ( \(line, lineNum) ->
-                  let (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
-                      mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
-                      mkSymbolEntry sym columnRange =
-                        SymbolEntry
-                          { symbol = sym,
-                            loc =
-                              SymbolLoc
-                                { uri,
-                                  lineNum,
-                                  columnRange = Types.mkColumnRange columnRange
-                                }
-                          }
-                   in Symbols
-                        { anchors = anchors <&> uncurry mkSymbolEntry & Ix.fromList,
-                          references = refs <&> uncurry mkSymbolEntry & Ix.fromList
-                        }
-              )
-          & mconcat
 
   modifyState \appState0 -> do
     if not (checkIsDirty uri fileVersion appState0)
       then
         pure appState0
       else do
-        -- Remove the symbols for this file
-        let appState1 =
-              appState0
-                { App.symbols =
-                    appState0.symbols
-                      { anchors = Ix.deleteMany appState0.symbols.anchors (\anchors -> anchors @= uri),
-                        references = Ix.deleteMany appState0.symbols.references (\references -> references @= uri)
-                      }
-                }
-
-        -- Add the new symbols for this file
-        let appState2 =
-              appState1
-                { symbols = appState1.symbols <> newSymbols,
-                  -- Update the version we have for this file.
-                  fileVersions = SM.insert uri fileVersion appState1.fileVersions
-                }
-
-        -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
-        if appState0.symbols == appState2.symbols
-          then pure appState2
-          else sendDiagnostics logger appState2
+        loadSymbolsForFile logger uri contents fileVersion appState0
   where
     checkIsDirty :: Uri -> Int32 -> AppState -> Bool
     checkIsDirty uri fileVersion appState =
       let lastSeenVersion = SM.findWithDefault 1 uri appState.fileVersions
-       in fileVersion /= lastSeenVersion
+       in -- NOTE: versions are not strictly monotonic.
+          -- If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
+          -- the next time the user opens it, the version will be reset to 1.
+          fileVersion /= lastSeenVersion
+
+-- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles
+handleDidChangeWatchedFiles :: AppLogger -> Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
+handleDidChangeWatchedFiles logger = \req -> do
+  logNot logger req
+
+  forM_ (req ^. LSP.params . LSP.changes) \fileEvent -> do
+    let uri = fileEvent ^. LSP.uri
+    when (shouldHandleFile uri) $
+      case fileEvent ^. LSP.type_ of
+        LSP.FileChangeType_Changed -> do
+          -- NOTE: when a file is changed on disk AND is open in the editor, either:
+          --  * The user edited the file and saved the changes
+          --      * in which case we don't need to handle it here
+          --  * The file was changed on disk, and the editor buffer was updated as a result
+          --      * e.g. the user switched git branches
+          --      * in which case we also don't need to handle it here, because we'll receive a `didChange` notification with the new contents of the file.
+          --  * The file was changed on disk, but the editor buffer was not updated
+          --      * e.g. the user has unsaved changes in the editor and then switches branches
+          --      * The file on disk and the editor buffer are now out of sync. We prioritize the buffer, so we don't need to handle this event.
+          --
+          -- In other words: we only care about this event if the file is NOT open in the editor.
+          unlessM (isFileOpen uri) do
+            debug logger $ "Reloading file from disk: " <> tshow uri
+            contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
+            -- NOTE: If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
+            -- the next time the user opens it, the version will be reset to 1.
+            let fileVersion = 1
+            modifyState $ loadSymbolsForFile logger uri contents fileVersion
+        LSP.FileChangeType_Deleted -> do
+          debug logger $ "FILE DELETED: " <> tshow uri
+        LSP.FileChangeType_Created -> do
+          debug logger $ "FILE CREATED: " <> tshow uri
+  where
+    isFileOpen :: Uri -> AppM Bool
+    isFileOpen uri = do
+      vf <- getVirtualFile (LSP.toNormalizedUri uri)
+      pure $ Maybe.isJust vf
+
+    -- Ignore files we're not interested in, e.g. `./git` files.
+    shouldHandleFile :: Uri -> Bool
+    shouldHandleFile uri =
+      case LSP.uriToFilePath uri of
+        Nothing -> False
+        Just fp -> not $ ".git" `elem` FP.splitDirectories fp
 
 handleDidChange :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange logger = \req -> do
-  logNot' logger req
+  logNot logger req
 
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   vf <- Maybe.fromJust <$> LSP.getVirtualFile (LSP.toNormalizedUri uri)
@@ -355,6 +366,7 @@ handleDidChange logger = \req -> do
                           }
                 )
             & mconcat
+
         appState1 =
           appState0
             { symbols = symbols1 <> newSymbols,
@@ -407,8 +419,7 @@ applyChanges _logger symbols uri diffs =
                         & Ix.toList
                         <&> (\entry -> entry {loc = entry.loc {lineNum = entry.loc.lineNum + lineDelta}})
                         & Ix.fromList
-                 in allSymbols
-                      & Ix.difference entriesToShift
+                 in Ix.difference allSymbols entriesToShift
                       & Ix.union shiftedEntries
 
               -- Update the line numbers we need to reparse.
@@ -478,7 +489,9 @@ handlePrepareRename _logger = \req responder -> do
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename
 handleRename :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentRename
-handleRename _logger = \req responder -> do
+handleRename logger = \req responder -> do
+  logReq logger req
+
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position
   let newLabelName = req ^. LSP.params . LSP.newName
@@ -634,6 +647,55 @@ sendDiagnostics _logger state = do
 ----------------------------------------------------------------------------
 -- Helpers
 ----------------------------------------------------------------------------
+
+loadSymbolsForFile :: AppLogger -> Uri -> Text -> Int32 -> AppState -> AppM AppState
+loadSymbolsForFile logger uri contents fileVersion appState0 = do
+  -- Remove the symbols for this file
+  let appState1 =
+        appState0
+          { App.symbols =
+              appState0.symbols
+                { anchors = Ix.deleteMany appState0.symbols.anchors (\anchors -> anchors @= uri),
+                  references = Ix.deleteMany appState0.symbols.references (\references -> references @= uri)
+                }
+          }
+
+  -- Parse the new symbols for this file
+  let newSymbols = parseFile contents uri
+  let appState2 =
+        appState1
+          { symbols = appState1.symbols <> newSymbols,
+            -- Update the version we have for this file.
+            fileVersions = SM.insert uri fileVersion appState1.fileVersions
+          }
+
+  -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
+  if appState0.symbols == appState2.symbols
+    then pure appState2
+    else sendDiagnostics logger appState2
+  where
+    parseFile :: Text -> Uri -> Symbols
+    parseFile contents uri =
+      (T.lines contents `zip` [0 ..])
+        <&> ( \(line, lineNum) ->
+                let (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
+                    mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
+                    mkSymbolEntry sym columnRange =
+                      SymbolEntry
+                        { symbol = sym,
+                          loc =
+                            SymbolLoc
+                              { uri,
+                                lineNum,
+                                columnRange = Types.mkColumnRange columnRange
+                              }
+                        }
+                 in Symbols
+                      { anchors = anchors <&> uncurry mkSymbolEntry & Ix.fromList,
+                        references = refs <&> uncurry mkSymbolEntry & Ix.fromList
+                      }
+            )
+        & mconcat
 
 symbolLocToLspRange :: SymbolLoc -> LSP.Range
 symbolLocToLspRange loc =

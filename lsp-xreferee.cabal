@@ -28,6 +28,7 @@ library
       Data.IxSet.Typed.Util
       Xreferee.Lsp
       Xreferee.Lsp.AppM
+      Xreferee.Lsp.Log
       Xreferee.Lsp.Types
   other-modules:
       Paths_lsp_xreferee
@@ -43,10 +44,12 @@ library
       BlockArguments
       DeriveAnyClass
       OverloadedStrings
+      NoImplicitPrelude
   ghc-options: -Weverything -Wno-name-shadowing -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missing-export-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-prepositive-qualified-module -Wno-missing-safe-haskell-mode -Wno-unused-packages -Wno-missing-kind-signatures -Wno-missing-role-annotations
   build-depends:
       aeson
     , base >=4.7 && <5
+    , classy-prelude
     , co-log-core
     , containers
     , directory
@@ -81,10 +84,12 @@ executable lsp-xreferee-exe
       BlockArguments
       DeriveAnyClass
       OverloadedStrings
+      NoImplicitPrelude
   ghc-options: -Weverything -Wno-name-shadowing -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missing-export-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-prepositive-qualified-module -Wno-missing-safe-haskell-mode -Wno-unused-packages -Wno-missing-kind-signatures -Wno-missing-role-annotations -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
     , base >=4.7 && <5
+    , classy-prelude
     , co-log-core
     , containers
     , directory
@@ -121,10 +126,12 @@ test-suite lsp-xreferee-test
       BlockArguments
       DeriveAnyClass
       OverloadedStrings
+      NoImplicitPrelude
   ghc-options: -Weverything -Wno-name-shadowing -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missing-export-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-prepositive-qualified-module -Wno-missing-safe-haskell-mode -Wno-unused-packages -Wno-missing-kind-signatures -Wno-missing-role-annotations -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
     , base >=4.7 && <5
+    , classy-prelude
     , co-log-core
     , containers
     , directory
