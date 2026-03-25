@@ -313,14 +313,22 @@ handleDidChangeWatchedFiles logger = \req -> do
             let fileVersion = 1
             modifyState logger $ pure . loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Created -> do
-          -- NOTE: when a file is created via the editor, we'll receive a `didOpen` notification followed by a `didChangeWatchedFiles`,
-          -- so we don't need to handle it here.
-          -- When it's created outside the editor, we'll only receive a `didChangeWatchedFiles`.
-          unlessM (isFileOpen uri) do
-            debug logger $ "Loading file from disk: " <> tshow uri
-            contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
-            let fileVersion = 1
-            modifyState logger $ pure . loadSymbolsForFile uri contents fileVersion
+          -- NOTE: this is triggered when:
+          --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
+          --  * a file is created outside the editor (we ONLY receive `didChangeWatchedFiles` notifications)
+          --  * a file is renamed via the editor / outside the editor (we ONLY receive `didChangeWatchedFiles` notifications).
+          --
+          -- When a file is renamed and it's open in the editor, we'll only receive 2x `didChangeWatchedFiles` (deleted & created),
+          -- We won't receive any other notifications.
+          -- For this reason, we always have to handle this event here, without checking `isFileOpen`.
+          --
+          -- The downside is that when a file is created via the editor, we'll parse it twice
+          -- (when handling `didOpen` and again here when handling `didChangeWatchedFiles`),
+          -- but that's not a big deal because the file is likely empty anyway.
+          debug logger $ "Loading file from disk: " <> tshow uri
+          contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
+          let fileVersion = 1
+          modifyState logger $ pure . loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Deleted -> do
           debug logger $ "Deleting symbols for file: " <> tshow uri
           modifyState logger $ pure . deleteSymbolsForFile uri
