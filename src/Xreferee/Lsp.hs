@@ -717,7 +717,7 @@ modifyState logger act = do
       else sendDiagnostics logger appState1
 
 deleteSymbolsForFileOrDirectory :: AppLogger -> Uri -> AppState -> AppM AppState
-deleteSymbolsForFileOrDirectory logger uri appState = do
+deleteSymbolsForFileOrDirectory logger dirUri appState = do
   let (anchors', deletedAnchorsUris) = delete @Anchor appState.symbols.anchors
       (references', deletedReferencesUris) = delete @Reference appState.symbols.references
       deletedUris = deletedAnchorsUris <> deletedReferencesUris
@@ -740,9 +740,20 @@ deleteSymbolsForFileOrDirectory logger uri appState = do
     delete :: (SymbolIxsConstraint symbol) => SymbolSet symbol -> (SymbolSet symbol, Set Uri)
     delete symbols =
       let allUris = Ix.groupBy' @Uri symbols & Map.keysSet
-          urisToDelete = allUris & Set.filter (\u -> uri.getUri `T.isPrefixOf` u.getUri)
+          urisToDelete = allUris & Set.filter (\u -> u `isWithinDir` dirUri)
           symbols' = Ix.deleteMany symbols (\entries -> entries @+ Set.toList urisToDelete)
        in (symbols', urisToDelete)
+
+-- Checks if a URI points to a file within a given directory.
+isWithinDir :: Uri -> Uri -> Bool
+isWithinDir file dir =
+  addTrailingPathSeparator dir.getUri `T.isPrefixOf` file.getUri
+  where
+    -- We MUST add a trailing path separator.
+    -- Otherwise, `isWithinDir ./foobar/file.md ./foo` would incorrectly be `True`.
+    addTrailingPathSeparator :: Text -> Text
+    addTrailingPathSeparator =
+      T.pack . FP.addTrailingPathSeparator . T.unpack
 
 loadSymbolsForFile :: Uri -> Text -> Int32 -> AppState -> AppState
 loadSymbolsForFile uri contents fileVersion appState0 =
