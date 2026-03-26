@@ -289,7 +289,9 @@ handleDidChangeWatchedFiles :: AppLogger -> Handler AppM 'LSP.Method_WorkspaceDi
 handleDidChangeWatchedFiles logger = \req -> do
   logNot logger req
 
-  forM_ (req ^. LSP.params . LSP.changes) \fileEvent -> do
+  let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
+
+  forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
     when (shouldHandleFile uri) $
       case fileEvent ^. LSP.type_ of
@@ -329,9 +331,13 @@ handleDidChangeWatchedFiles logger = \req -> do
           -- (when handling `didOpen` and again here when handling `didChangeWatchedFiles`),
           -- but that's not a big deal because the file is likely empty anyway.
           --
-          -- NOTE ON DIRECTORIES:
-          --  * when a folder is created, we'll get a "created" event for the folder AND for every file within it.
-          --  * when a folder is renamed, we'll get "created + "deleted" events for the folder only.
+          -- NOTE ON DIRECTORIES and `Created` events:
+          --  * when a folder is created with Ctrl+V
+          --     -> we'll get a "created" event for the folder AND for every file within it.
+          --  * when a folder is deleted and then re-created with Ctrl+Z
+          --     -> we'll get a "created" event for the folder only.
+          --  * when a folder is renamed
+          --     -> we'll get a "created" event for the folder only.
           -- Because we don't know whether we're going to receive events for the individual files,
           -- we have to assume the worst (we won't). So we traverse the directory and load all files.
           paths <- listPaths uri
@@ -348,6 +354,27 @@ handleDidChangeWatchedFiles logger = \req -> do
           debug logger $ "Deleting symbols for file/directory: " <> tshow uri
           modifyState logger $ deleteSymbolsForFileOrDirectory logger uri
   where
+    -- When creating a folder, sometimes we might get a "created" event for the folder,
+    -- and sometimes we might get "created" events for the folder AND every file within the folder.
+    --
+    -- To avoid reparsing files unnecessarily, we normalize the events by deduping "created" events.
+    -- If we find "created" events for a folder and a file within that folder, we ignore the "created" event for the file.
+    dedupFileCreatedEvents :: [LSP.FileEvent] -> [LSP.FileEvent]
+    dedupFileCreatedEvents events =
+      foldl'
+        ( \acc event ->
+            if event ^. LSP.type_ == LSP.FileChangeType_Created
+              then
+                -- If we already have a "created" event for a parent directory, we can ignore this "created" event for the child file.
+                if any (\seenEvent -> seenEvent ^. LSP.type_ == LSP.FileChangeType_Created && ((event ^. LSP.uri) `isWithinDir` (seenEvent ^. LSP.uri))) acc
+                  then acc
+                  else event : acc
+              else event : acc
+        )
+        []
+        events
+        & reverse
+
     isFileOpen :: Uri -> AppM Bool
     isFileOpen uri = do
       vf <- getVirtualFile (LSP.toNormalizedUri uri)
