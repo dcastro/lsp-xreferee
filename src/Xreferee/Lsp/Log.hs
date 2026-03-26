@@ -28,6 +28,6 @@ debug :: AppLogger -> Text -> AppM ()
 debug logger msg = do
   logger <& msg `WithSeverity` Debug
 
-debugP :: (Show a) => AppLogger -> a -> AppM ()
-debugP logger x = do
-  logger <& (LT.toStrict $ pShowNoColor x) `WithSeverity` Debug
+debugP :: (Show a) => AppLogger -> Text -> a -> AppM ()
+debugP logger label x = do
+  logger <& (label <> ": " <> LT.toStrict (pShowNoColor x)) `WithSeverity` Debug

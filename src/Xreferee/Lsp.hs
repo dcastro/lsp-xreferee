@@ -6,7 +6,7 @@ import Colog.Core qualified as L
 import Control.Exception qualified as E
 import Control.Lens hiding (Indexable, Iso)
 import Data.Aeson qualified as J
-import Data.IxSet.Typed ((@<=), (@=), (@>), (@>=), (@>=<=))
+import Data.IxSet.Typed ((@+), (@<=), (@=), (@>), (@>=), (@>=<=))
 import Data.IxSet.Typed qualified as Ix
 import Data.IxSet.Typed.Util qualified as Ix
 import Data.Map qualified as Map
@@ -305,13 +305,16 @@ handleDidChangeWatchedFiles logger = \req -> do
           --      * The file on disk and the editor buffer are now out of sync. We prioritize the buffer, so we don't need to handle this event.
           --
           -- In other words: we only care about this event if the file is NOT open in the editor.
-          unlessM (isFileOpen uri) do
-            debug logger $ "Reloading file from disk: " <> tshow uri
-            contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
-            -- NOTE: If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
-            -- the next time the user opens it, the version will be reset to 1.
-            let fileVersion = 1
-            modifyState logger $ pure . loadSymbolsForFile uri contents fileVersion
+          whenM (not <$> isFileOpen uri) do
+            -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
+            -- We should ignore those events.
+            whenM (isFileAndExists uri) do
+              debug logger $ "Reloading file from disk: " <> tshow uri
+              contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
+              -- NOTE: If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
+              -- the next time the user opens it, the version will be reset to 1.
+              let fileVersion = 1
+              modifyState logger $ pure . loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Created -> do
           -- NOTE: this is triggered when:
           --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
@@ -325,18 +328,36 @@ handleDidChangeWatchedFiles logger = \req -> do
           -- The downside is that when a file is created via the editor, we'll parse it twice
           -- (when handling `didOpen` and again here when handling `didChangeWatchedFiles`),
           -- but that's not a big deal because the file is likely empty anyway.
-          debug logger $ "Loading file from disk: " <> tshow uri
-          contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
-          let fileVersion = 1
-          modifyState logger $ pure . loadSymbolsForFile uri contents fileVersion
+          --
+          -- NOTE ON DIRECTORIES:
+          --  * when a folder is created, we'll get a "created" event for the folder AND for every file within it.
+          --  * when a folder is renamed, we'll get "created + "deleted" events for the folder only.
+          -- Because we don't know whether we're going to receive events for the individual files,
+          -- we have to assume the worst (we won't). So we traverse the directory and load all files.
+          paths <- listPaths uri
+          forM_ paths \path -> do
+            let uri = LSP.filePathToUri path
+            debug logger $ "Loading file from disk: " <> tshow path
+            contents <- liftIO $ T.readFile path
+            let fileVersion = 1
+            modifyState logger $ pure . loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Deleted -> do
-          debug logger $ "Deleting symbols for file: " <> tshow uri
-          modifyState logger $ pure . deleteSymbolsForFile uri
+          -- NOTE: We don't know whether this was a file or a directory.
+          -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
+          -- this uri as a prefix (in case this was a directory).
+          debug logger $ "Deleting symbols for file/directory: " <> tshow uri
+          modifyState logger $ deleteSymbolsForFileOrDirectory logger uri
   where
     isFileOpen :: Uri -> AppM Bool
     isFileOpen uri = do
       vf <- getVirtualFile (LSP.toNormalizedUri uri)
       pure $ Maybe.isJust vf
+
+    isFileAndExists :: Uri -> AppM Bool
+    isFileAndExists uri =
+      case LSP.uriToFilePath uri of
+        Nothing -> pure False
+        Just fp -> liftIO $ Dir.doesFileExist fp
 
     -- Ignore files we're not interested in, e.g. `./git` files.
     shouldHandleFile :: Uri -> Bool
@@ -344,6 +365,31 @@ handleDidChangeWatchedFiles logger = \req -> do
       case LSP.uriToFilePath uri of
         Nothing -> False
         Just fp -> not $ ".git" `elem` FP.splitDirectories fp
+
+    -- If this path points to a file, return it.
+    -- If it points to a directory, traverse the directory and return all files within it.
+    listPaths :: Uri -> AppM [FilePath]
+    listPaths uri =
+      case LSP.uriToFilePath uri of
+        Nothing -> pure []
+        Just fp -> do
+          isFile <- liftIO $ Dir.doesFileExist fp
+          if isFile
+            then pure [fp]
+            else do
+              isDir <- liftIO $ Dir.doesDirectoryExist fp
+              if isDir
+                then liftIO $ traverseDir fp
+                else pure []
+      where
+        traverseDir :: FilePath -> IO [FilePath]
+        traverseDir dir = do
+          contents <- Dir.listDirectory dir
+          let paths = contents <&> \name -> dir </> name
+          files <- filterM Dir.doesFileExist paths
+          dirs <- filterM Dir.doesDirectoryExist paths
+          nestedFiles <- mapM traverseDir dirs
+          pure $ files <> concat nestedFiles
 
 handleDidChange :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange logger = \req -> do
@@ -670,16 +716,33 @@ modifyState logger act = do
       then pure appState1
       else sendDiagnostics logger appState1
 
-deleteSymbolsForFile :: Uri -> AppState -> AppState
-deleteSymbolsForFile uri appState =
-  appState
-    { symbols =
-        appState.symbols
-          { anchors = Ix.deleteMany appState.symbols.anchors (\anchors -> anchors @= uri),
-            references = Ix.deleteMany appState.symbols.references (\references -> references @= uri)
-          },
-      fileVersions = SM.delete uri appState.fileVersions
-    }
+deleteSymbolsForFileOrDirectory :: AppLogger -> Uri -> AppState -> AppM AppState
+deleteSymbolsForFileOrDirectory logger uri appState = do
+  let (anchors', deletedAnchorsUris) = delete @Anchor appState.symbols.anchors
+      (references', deletedReferencesUris) = delete @Reference appState.symbols.references
+      deletedUris = deletedAnchorsUris <> deletedReferencesUris
+
+  forM_ deletedAnchorsUris \deletedUri -> do
+    debug logger $ "Deleted anchors from file: " <> tshow deletedUri
+  forM_ deletedReferencesUris \deletedUri -> do
+    debug logger $ "Deleted references from file: " <> tshow deletedUri
+
+  pure
+    appState
+      { symbols =
+          appState.symbols
+            { anchors = anchors',
+              references = references'
+            },
+        fileVersions = SM.withoutKeys appState.fileVersions deletedUris
+      }
+  where
+    delete :: (SymbolIxsConstraint symbol) => SymbolSet symbol -> (SymbolSet symbol, Set Uri)
+    delete symbols =
+      let allUris = Ix.groupBy' @Uri symbols & Map.keysSet
+          urisToDelete = allUris & Set.filter (\u -> uri.getUri `T.isPrefixOf` u.getUri)
+          symbols' = Ix.deleteMany symbols (\entries -> entries @+ Set.toList urisToDelete)
+       in (symbols', urisToDelete)
 
 loadSymbolsForFile :: Uri -> Text -> Int32 -> AppState -> AppState
 loadSymbolsForFile uri contents fileVersion appState0 =
@@ -694,6 +757,17 @@ loadSymbolsForFile uri contents fileVersion appState0 =
           fileVersions = SM.insert uri fileVersion appState1.fileVersions
         }
   where
+    deleteSymbolsForFile :: Uri -> AppState -> AppState
+    deleteSymbolsForFile uri appState =
+      appState
+        { symbols =
+            appState.symbols
+              { anchors = Ix.deleteMany appState.symbols.anchors (\anchors -> anchors @= uri),
+                references = Ix.deleteMany appState.symbols.references (\references -> references @= uri)
+              },
+          fileVersions = SM.delete uri appState.fileVersions
+        }
+
     parseFile :: Text -> Uri -> Symbols
     parseFile contents uri =
       (T.lines contents `zip` [0 ..])
