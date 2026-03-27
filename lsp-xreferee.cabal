@@ -28,8 +28,17 @@ library
       Data.IxSet.Typed.Util
       Xreferee.Lsp
       Xreferee.Lsp.AppM
+      Xreferee.Lsp.Handlers.Definition
+      Xreferee.Lsp.Handlers.DidChange
+      Xreferee.Lsp.Handlers.DidChangeWatchedFiles
+      Xreferee.Lsp.Handlers.DidOpen
+      Xreferee.Lsp.Handlers.PrepareRename
+      Xreferee.Lsp.Handlers.References
+      Xreferee.Lsp.Handlers.Rename
       Xreferee.Lsp.Log
+      Xreferee.Lsp.SendDiagnostics
       Xreferee.Lsp.Types
+      Xreferee.Lsp.Util
   other-modules:
       Paths_lsp_xreferee
   autogen-modules:
