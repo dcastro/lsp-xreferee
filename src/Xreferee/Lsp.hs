@@ -80,10 +80,10 @@ run = flip E.catches handlers $ do
             -- TODO: config section
             configSection = "lsp-xreferee",
             doInitialize = \env _initializeMsg -> do
-              appState <- initialize fileLogger >>= newMVar
-              pure (Right (env, appState)),
+              appEnv <- initialize fileLogger allLoggers
+              pure (Right (env, appEnv)),
             staticHandlers = \_caps -> mkHandlers allLoggers,
-            interpretHandler = \(env, appState) -> Iso (runAppM appState env) liftIO,
+            interpretHandler = \(env, appEnv) -> Iso (runAppM appEnv env) liftIO,
             options = lspOptions
           }
 
@@ -103,16 +103,23 @@ run = flip E.catches handlers $ do
     ioExcept (e :: E.IOException) = print e >> return 1
     someExcept (e :: E.SomeException) = print e >> return 1
 
-initialize :: LogAction IO (WithSeverity Text) -> IO AppState
-initialize _logger = do
+initialize :: LogAction IO (WithSeverity Text) -> AppLogger -> IO AppEnv
+initialize _initLogger appLogger = do
   searchResult <- liftIO $ X.findRefsFromGit searchOpts
   workspaceDir <- Dir.getCurrentDirectory
   let symbols = Types.mkSymbols workspaceDir searchResult
+
+  state <-
+    newMVar
+      AppState
+        { symbols,
+          filesWithDiagnostics = Set.empty,
+          fileVersions = SM.empty
+        }
   pure
-    AppState
-      { symbols,
-        filesWithDiagnostics = Set.empty,
-        fileVersions = SM.empty,
+    AppEnv
+      { logger = appLogger,
+        state = state,
         workspaceDir = FP.splitDirectories workspaceDir
       }
 

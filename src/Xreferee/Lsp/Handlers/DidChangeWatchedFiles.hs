@@ -20,13 +20,14 @@ import Xreferee.Lsp.Util qualified as Util
 handleDidChangeWatchedFiles :: AppLogger -> Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeWatchedFiles logger = \req -> do
   logNot logger req
+  env <- ask
   appState0 <- getState
 
   let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
 
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
-    whenM (Util.shouldHandleFile logger appState0.workspaceDir uri) $ do
+    whenM (Util.shouldHandleFile logger env.workspaceDir uri) $ do
       case fileEvent ^. LSP.type_ of
         LSP.FileChangeType_Changed -> do
           -- NOTE: when a file is changed on disk AND is open in the editor, either:
@@ -99,8 +100,8 @@ handleDidChangeWatchedFiles logger = \req -> do
     -- Diagnostics are only published after we're done handling all the events.
     modifyState :: (AppState -> AppM AppState) -> AppM ()
     modifyState act = do
-      stateVar <- ask
-      Unlift.modifyMVar_ stateVar act
+      env <- ask
+      Unlift.modifyMVar_ env.state act
 
     -- When creating a folder, sometimes we might get a "created" event for the folder,
     -- and sometimes we might get "created" events for the folder AND every file within the folder.

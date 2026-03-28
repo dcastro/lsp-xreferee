@@ -19,8 +19,8 @@ import Xreferee.Lsp.Util qualified as Util
 -- | Modify the app state, and then send diagnostics to the client if the symbols have changed.
 modifyState :: AppLogger -> (AppState -> AppM AppState) -> AppM ()
 modifyState logger act = do
-  stateVar <- ask
-  Unlift.modifyMVar_ stateVar \appState0 -> do
+  env <- ask
+  Unlift.modifyMVar_ env.state \appState0 -> do
     appState1 <- act appState0
 
     -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
