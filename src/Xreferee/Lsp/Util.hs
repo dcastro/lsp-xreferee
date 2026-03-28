@@ -155,8 +155,10 @@ findSymbolAtPosition reqUri reqPos symbols =
 --     I'm not sure there's an efficient way of doing that.
 --
 -- For that reason, we're considering tracked AND untracked files, and only ignore files targeted by `.gitignore`.
-shouldHandleFile :: [FilePath] -> Uri -> AppM Bool
-shouldHandleFile workspaceDir uri = do
+shouldHandleFile :: Uri -> AppM Bool
+shouldHandleFile uri = do
+  workspaceDir <- asks (.workspaceDir)
+
   should <- case LSP.uriToFilePath uri of
     Nothing -> pure False
     Just fp ->

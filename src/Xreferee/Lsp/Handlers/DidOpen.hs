@@ -30,12 +30,12 @@ handleDidOpen = \req -> do
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text
 
-  modifyState \appState0 -> do
-    if not (checkIsDirty uri fileVersion appState0)
+  modifyState \appState -> do
+    if not (checkIsDirty uri fileVersion appState)
       then
-        pure appState0
+        pure appState
       else do
-        pure $ Util.loadSymbolsForFile uri contents fileVersion appState0
+        pure $ Util.loadSymbolsForFile uri contents fileVersion appState
   where
     checkIsDirty :: Uri -> Int32 -> AppState -> Bool
     checkIsDirty uri fileVersion appState =

@@ -20,14 +20,13 @@ import Xreferee.Lsp.Util qualified as Util
 handleDidChangeWatchedFiles :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeWatchedFiles = \req -> do
   logNot req
-  env <- ask
   appState0 <- getState
 
   let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
 
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
-    whenM (Util.shouldHandleFile env.workspaceDir uri) $ do
+    whenM (Util.shouldHandleFile uri) do
       case fileEvent ^. LSP.type_ of
         LSP.FileChangeType_Changed -> do
           -- NOTE: when a file is changed on disk AND is open in the editor, either:

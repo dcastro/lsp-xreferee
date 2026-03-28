@@ -4,11 +4,13 @@ import ClassyPrelude hiding (Handler)
 import Colog.Core (LogAction (..), WithSeverity (..))
 import Colog.Core qualified as L
 import Control.Exception qualified as E
+import Control.Lens hiding (Indexable, Iso)
 import Data.Aeson qualified as J
 import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
 import Data.Text.IO qualified as T
 import Language.LSP.Logging (defaultClientLogger)
+import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
@@ -28,6 +30,7 @@ import Xreferee.Lsp.Handlers.Rename (handleRename)
 import Xreferee.Lsp.Log (debug, debugP)
 import Xreferee.Lsp.SendDiagnostics (modifyState, sendDiagnostics)
 import Xreferee.Lsp.Types qualified as Types
+import Xreferee.Lsp.Util qualified as Util
 
 main :: IO ()
 main = do
@@ -154,7 +157,7 @@ mkHandlers =
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
         registerDidChangeWatchedFiles
         modifyState $ sendDiagnostics,
-      notificationHandler LSP.SMethod_TextDocumentDidOpen handleDidOpen,
+      notificationHandler LSP.SMethod_TextDocumentDidOpen (filterNot handleDidOpen),
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
         pure (),
@@ -164,14 +167,38 @@ mkHandlers =
         sendNotification LSP.SMethod_WindowShowMessage $
           LSP.ShowMessageParams LSP.MessageType_Info $
             "Wibble factor set to " <> tshow cfg.wibbleFactor,
-      notificationHandler LSP.SMethod_TextDocumentDidChange handleDidChange,
-      requestHandler LSP.SMethod_TextDocumentPrepareRename handlePrepareRename,
-      requestHandler LSP.SMethod_TextDocumentRename handleRename,
-      requestHandler LSP.SMethod_TextDocumentDefinition handleDefinition,
-      requestHandler LSP.SMethod_TextDocumentReferences handleReferences
+      notificationHandler LSP.SMethod_TextDocumentDidChange (filterNot handleDidChange),
+      requestHandler LSP.SMethod_TextDocumentPrepareRename (filterReq handlePrepareRename),
+      requestHandler LSP.SMethod_TextDocumentRename (filterReq handleRename),
+      requestHandler LSP.SMethod_TextDocumentDefinition (filterReq handleDefinition),
+      requestHandler LSP.SMethod_TextDocumentReferences (filterReq handleReferences)
       -- Workspace events
       -- NOTE: `workspace/didChangeWatchedFiles` must be registered dynamically, see `registerDidChangeWatchedFiles`
     ]
+  where
+    -- Skip the handler if we're not interested in processing events for this file
+    filterReq ::
+      forall from (method :: LSP.Method from 'LSP.Request) doc.
+      (LSP.HasTextDocument (LSP.MessageParams method) doc) =>
+      (LSP.HasUri doc LSP.Uri) =>
+      Handler AppM method ->
+      Handler AppM method
+    filterReq handler = \msg responder -> do
+      let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
+      whenM (Util.shouldHandleFile uri) do
+        handler msg responder
+
+    -- Skip the handler if we're not interested in processing events for this file
+    filterNot ::
+      forall from (method :: LSP.Method from 'LSP.Notification) doc.
+      (LSP.HasTextDocument (LSP.MessageParams method) doc) =>
+      (LSP.HasUri doc LSP.Uri) =>
+      Handler AppM method ->
+      Handler AppM method
+    filterNot handler = \msg -> do
+      let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
+      whenM (Util.shouldHandleFile uri) do
+        handler msg
 
 -- | Ask the client to start watching files and sending `workspace/didChangeWatchedFiles` notifications.
 registerDidChangeWatchedFiles :: AppM ()
