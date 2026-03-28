@@ -59,18 +59,18 @@ jobs:
           stack --version
 
       - name: Build with Stack
-        run: stack build lsp-xreferee:exe:lsp-xreferee-exe --ghc-options="-O2 -Werror" --copy-bins --local-bin-path dist-bin
+        run: stack build lsp-xreferee:exe:lsp-xreferee --ghc-options="-O2 -Werror" --copy-bins --local-bin-path dist-bin
 
       - name: Prepare binary artifact (Unix)
         if: runner.os != 'Windows'
         run: |
-          cp dist-bin/lsp-xreferee-exe dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}
+          cp dist-bin/lsp-xreferee dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}
 
       - name: Prepare binary artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Copy-Item dist-bin/lsp-xreferee-exe.exe dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.exe
+          Copy-Item dist-bin/lsp-xreferee.exe dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.exe
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v7

@@ -73,7 +73,7 @@ library:
   source-dirs: src
 
 executables:
-  lsp-xreferee-exe:
+  lsp-xreferee:
     main: Main.hs
     source-dirs: app
     ghc-options:
