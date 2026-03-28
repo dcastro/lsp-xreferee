@@ -63,6 +63,23 @@ jobs:
           choco install haskell-stack --yes --no-progress
           stack --version
 
+      - name: Resolve Stack cache paths
+        id: stack-paths
+        shell: pwsh
+        run: |
+          $stackRoot = stack path --stack-root
+          "stack_root=$stackRoot" >> $env:GITHUB_OUTPUT
+
+      - name: Restore Stack cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ steps.stack-paths.outputs.stack_root }}
+            .stack-work
+          key: ${{ runner.os }}-${{ matrix.arch }}-stack-${{ hashFiles('stack.yaml', 'package.yaml', 'lsp-xreferee.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-stack-
+
       - name: Build with Stack
         run: stack build lsp-xreferee:exe:lsp-xreferee --ghc-options="-O2 -Werror" --copy-bins --local-bin-path dist-bin
 
