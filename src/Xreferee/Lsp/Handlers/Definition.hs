@@ -15,9 +15,9 @@ import Xreferee.Lsp.Types (SymbolEntry (..), SymbolLoc (..), Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 import Xreferee.Lsp.Util qualified as Util
 
-handleDefinition :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDefinition
-handleDefinition logger = \req responder -> do
-  logReq logger req
+handleDefinition :: Handler AppM 'LSP.Method_TextDocumentDefinition
+handleDefinition = \req responder -> do
+  logReq req
 
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position

@@ -17,8 +17,8 @@ import Xreferee.Lsp.Types (SymbolEntry (..), SymbolLoc (..), Symbols (..))
 import Xreferee.Lsp.Util qualified as Util
 
 -- | Modify the app state, and then send diagnostics to the client if the symbols have changed.
-modifyState :: AppLogger -> (AppState -> AppM AppState) -> AppM ()
-modifyState logger act = do
+modifyState :: (AppState -> AppM AppState) -> AppM ()
+modifyState act = do
   env <- ask
   Unlift.modifyMVar_ env.state \appState0 -> do
     appState1 <- act appState0
@@ -26,7 +26,7 @@ modifyState logger act = do
     -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
     if appState0.symbols == appState1.symbols
       then pure appState1
-      else sendDiagnostics logger appState1
+      else sendDiagnostics appState1
 
 -- | A label that is shown next to each warning/error.
 diagnosticsSource :: Maybe Text
@@ -34,8 +34,8 @@ diagnosticsSource = Just "xreferee"
 
 -- | Analyze the file and send any diagnostics to the client in a
 -- "textDocument/publishDiagnostics" notification
-sendDiagnostics :: AppLogger -> AppState -> AppM AppState
-sendDiagnostics _logger state = do
+sendDiagnostics :: AppState -> AppM AppState
+sendDiagnostics state = do
   let anchorsGrouped = state.symbols.anchors & Ix.groupBy' @Anchor :: Map Anchor (Set (SymbolEntry Anchor))
   let refsGrouped = state.symbols.references & Ix.groupBy' @Reference :: Map Reference (Set (SymbolEntry Reference))
 

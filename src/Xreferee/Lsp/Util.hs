@@ -23,16 +23,16 @@ import Xreferee.Lsp.Log
 import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
-deleteSymbolsForFileOrDirectory :: AppLogger -> Uri -> AppState -> AppM AppState
-deleteSymbolsForFileOrDirectory logger dirUri appState = do
+deleteSymbolsForFileOrDirectory :: Uri -> AppState -> AppM AppState
+deleteSymbolsForFileOrDirectory dirUri appState = do
   let (anchors', deletedAnchorsUris) = delete @Anchor appState.symbols.anchors
       (references', deletedReferencesUris) = delete @Reference appState.symbols.references
       deletedUris = deletedAnchorsUris <> deletedReferencesUris
 
   forM_ deletedAnchorsUris \deletedUri -> do
-    debug logger $ "Deleted anchors from file: " <> tshow deletedUri
+    debug $ "Deleted anchors from file: " <> tshow deletedUri
   forM_ deletedReferencesUris \deletedUri -> do
-    debug logger $ "Deleted references from file: " <> tshow deletedUri
+    debug $ "Deleted references from file: " <> tshow deletedUri
 
   pure
     appState
@@ -155,8 +155,8 @@ findSymbolAtPosition reqUri reqPos symbols =
 --     I'm not sure there's an efficient way of doing that.
 --
 -- For that reason, we're considering tracked AND untracked files, and only ignore files targeted by `.gitignore`.
-shouldHandleFile :: AppLogger -> [FilePath] -> Uri -> AppM Bool
-shouldHandleFile logger workspaceDir uri = do
+shouldHandleFile :: [FilePath] -> Uri -> AppM Bool
+shouldHandleFile workspaceDir uri = do
   should <- case LSP.uriToFilePath uri of
     Nothing -> pure False
     Just fp ->
@@ -175,5 +175,5 @@ shouldHandleFile logger workspaceDir uri = do
                     ExitSuccess -> pure False -- The file is ignored by git, so we should ignore it too.
                     ExitFailure _ -> pure True -- The file is not ignored by git, so we should handle it.
   when (not should) do
-    debugP logger "Ignoring file" uri
+    debug $ "Ignoring file: " <> tshow uri
   pure should

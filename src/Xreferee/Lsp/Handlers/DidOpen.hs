@@ -23,14 +23,14 @@ import Xreferee.Lsp.Util qualified as Util
 --
 -- This handler checks if the in-memory buffer is in a "dirty" state,
 -- and if so, it reparses the file and updates the symbols.
-handleDidOpen :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentDidOpen
-handleDidOpen logger = \req -> do
-  logNot logger req
+handleDidOpen :: Handler AppM 'LSP.Method_TextDocumentDidOpen
+handleDidOpen = \req -> do
+  logNot req
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text
 
-  modifyState logger \appState0 -> do
+  modifyState \appState0 -> do
     if not (checkIsDirty uri fileVersion appState0)
       then
         pure appState0

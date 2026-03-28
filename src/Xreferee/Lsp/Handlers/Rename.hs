@@ -18,9 +18,9 @@ import Xreferee.Lsp.Types (SymbolEntry (..), Symbols (..))
 import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename
-handleRename :: AppLogger -> Handler AppM 'LSP.Method_TextDocumentRename
-handleRename logger = \req responder -> do
-  logReq logger req
+handleRename :: Handler AppM 'LSP.Method_TextDocumentRename
+handleRename = \req responder -> do
+  logReq req
 
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position

@@ -1,7 +1,7 @@
 module Xreferee.Lsp where
 
 import ClassyPrelude hiding (Handler)
-import Colog.Core (LogAction (..), Severity (..), WithSeverity (..), (<&))
+import Colog.Core (LogAction (..), WithSeverity (..))
 import Colog.Core qualified as L
 import Control.Exception qualified as E
 import Data.Aeson qualified as J
@@ -25,6 +25,7 @@ import Xreferee.Lsp.Handlers.DidOpen (handleDidOpen)
 import Xreferee.Lsp.Handlers.PrepareRename (handlePrepareRename)
 import Xreferee.Lsp.Handlers.References (handleReferences)
 import Xreferee.Lsp.Handlers.Rename (handleRename)
+import Xreferee.Lsp.Log (debug, debugP)
 import Xreferee.Lsp.SendDiagnostics (modifyState, sendDiagnostics)
 import Xreferee.Lsp.Types qualified as Types
 
@@ -82,7 +83,7 @@ run = flip E.catches handlers $ do
             doInitialize = \env _initializeMsg -> do
               appEnv <- initialize fileLogger allLoggers
               pure (Right (env, appEnv)),
-            staticHandlers = \_caps -> mkHandlers allLoggers,
+            staticHandlers = \_caps -> mkHandlers,
             interpretHandler = \(env, appEnv) -> Iso (runAppM appEnv env) liftIO,
             options = lspOptions
           }
@@ -147,34 +148,34 @@ lspOptions =
 -- ---------------------------------------------------------------------
 
 -- | Where the actual logic resides for handling requests and notifications.
-mkHandlers :: AppLogger -> Handlers AppM
-mkHandlers logger =
+mkHandlers :: Handlers AppM
+mkHandlers =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
-        registerDidChangeWatchedFiles logger
-        modifyState logger $ sendDiagnostics logger,
-      notificationHandler LSP.SMethod_TextDocumentDidOpen (handleDidOpen logger),
+        registerDidChangeWatchedFiles
+        modifyState $ sendDiagnostics,
+      notificationHandler LSP.SMethod_TextDocumentDidOpen handleDidOpen,
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
         pure (),
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \msg -> do
         cfg <- getConfig
-        logger L.<& ("Configuration changed: " <> tshow (msg, cfg)) `WithSeverity` Info
+        debugP "Configuration changed" (msg, cfg)
         sendNotification LSP.SMethod_WindowShowMessage $
           LSP.ShowMessageParams LSP.MessageType_Info $
             "Wibble factor set to " <> tshow cfg.wibbleFactor,
-      notificationHandler LSP.SMethod_TextDocumentDidChange (handleDidChange logger),
-      requestHandler LSP.SMethod_TextDocumentPrepareRename (handlePrepareRename logger),
-      requestHandler LSP.SMethod_TextDocumentRename (handleRename logger),
-      requestHandler LSP.SMethod_TextDocumentDefinition (handleDefinition logger),
-      requestHandler LSP.SMethod_TextDocumentReferences (handleReferences logger)
+      notificationHandler LSP.SMethod_TextDocumentDidChange handleDidChange,
+      requestHandler LSP.SMethod_TextDocumentPrepareRename handlePrepareRename,
+      requestHandler LSP.SMethod_TextDocumentRename handleRename,
+      requestHandler LSP.SMethod_TextDocumentDefinition handleDefinition,
+      requestHandler LSP.SMethod_TextDocumentReferences handleReferences
       -- Workspace events
       -- NOTE: `workspace/didChangeWatchedFiles` must be registered dynamically, see `registerDidChangeWatchedFiles`
     ]
 
 -- | Ask the client to start watching files and sending `workspace/didChangeWatchedFiles` notifications.
-registerDidChangeWatchedFiles :: AppLogger -> AppM ()
-registerDidChangeWatchedFiles logger = do
+registerDidChangeWatchedFiles :: AppM ()
+registerDidChangeWatchedFiles = do
   let watcher =
         LSP.FileSystemWatcher
           { _globPattern = LSP.GlobPattern $ LSP.InL $ LSP.Pattern "**/*",
@@ -185,11 +186,12 @@ registerDidChangeWatchedFiles logger = do
           { _watchers = [watcher]
           }
 
-  let coreLogger = L.cmap (fmap (tshow . pretty)) logger
-  result <- LSP.registerCapability coreLogger LSP.SMethod_WorkspaceDidChangeWatchedFiles registrationOptions (handleDidChangeWatchedFiles logger)
+  appLogger <- asks (.logger)
+  let coreLogger = L.cmap (fmap (tshow . pretty)) appLogger
+  result <- LSP.registerCapability coreLogger LSP.SMethod_WorkspaceDidChangeWatchedFiles registrationOptions handleDidChangeWatchedFiles
 
   case result of
     Nothing ->
-      logger <& "Failed to register workspace/didChangeWatchedFiles watcher." `WithSeverity` Warning
+      debug "Failed to register workspace/didChangeWatchedFiles watcher."
     Just _token ->
-      logger <& "Registered workspace/didChangeWatchedFiles watcher." `WithSeverity` Info
+      debug "Registered workspace/didChangeWatchedFiles watcher."

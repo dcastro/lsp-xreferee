@@ -17,9 +17,9 @@ import Xreferee.Lsp.SendDiagnostics (sendDiagnostics)
 import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles
-handleDidChangeWatchedFiles :: AppLogger -> Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
-handleDidChangeWatchedFiles logger = \req -> do
-  logNot logger req
+handleDidChangeWatchedFiles :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
+handleDidChangeWatchedFiles = \req -> do
+  logNot req
   env <- ask
   appState0 <- getState
 
@@ -27,7 +27,7 @@ handleDidChangeWatchedFiles logger = \req -> do
 
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
-    whenM (Util.shouldHandleFile logger env.workspaceDir uri) $ do
+    whenM (Util.shouldHandleFile env.workspaceDir uri) $ do
       case fileEvent ^. LSP.type_ of
         LSP.FileChangeType_Changed -> do
           -- NOTE: when a file is changed on disk AND is open in the editor, either:
@@ -45,7 +45,7 @@ handleDidChangeWatchedFiles logger = \req -> do
             -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
             -- We should ignore those events.
             whenM (isFileAndExists uri) do
-              debug logger $ "Reloading file from disk: " <> tshow uri
+              debug $ "Reloading file from disk: " <> tshow uri
               contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
               -- NOTE: If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
               -- the next time the user opens it, the version will be reset to 1.
@@ -77,7 +77,7 @@ handleDidChangeWatchedFiles logger = \req -> do
           paths <- listPaths uri
           forM_ paths \path -> do
             let uri = LSP.filePathToUri path
-            debug logger $ "Loading file from disk: " <> tshow path
+            debug $ "Loading file from disk: " <> tshow path
             contents <- liftIO $ T.readFile path
             let fileVersion = 1
             modifyState $ pure . Util.loadSymbolsForFile uri contents fileVersion
@@ -85,15 +85,15 @@ handleDidChangeWatchedFiles logger = \req -> do
           -- NOTE: We don't know whether this was a file or a directory.
           -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
           -- this uri as a prefix (in case this was a directory).
-          debug logger $ "Deleting symbols for file/directory: " <> tshow uri
-          modifyState $ Util.deleteSymbolsForFileOrDirectory logger uri
+          debug $ "Deleting symbols for file/directory: " <> tshow uri
+          modifyState $ Util.deleteSymbolsForFileOrDirectory uri
 
     -- We only send diagnostics after we've processed all file events.
     -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
     modifyState \appState1 -> do
       if appState0.symbols == appState1.symbols
         then pure appState1
-        else sendDiagnostics logger appState1
+        else sendDiagnostics appState1
   where
     -- This function shadows the top-level `modifyState`.
     -- It's only used here, and it doesn't automatically publish the diagnostics.
