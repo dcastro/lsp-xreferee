@@ -15,6 +15,7 @@ import Language.LSP.Server as LSP
 import Prettyprinter
 import System.Directory qualified as Dir
 import System.Exit
+import System.FilePath qualified as FP
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Handlers.Definition (handleDefinition)
@@ -111,7 +112,8 @@ initialize _logger = do
     AppState
       { symbols,
         filesWithDiagnostics = Set.empty,
-        fileVersions = SM.empty
+        fileVersions = SM.empty,
+        workspaceDir = FP.splitDirectories workspaceDir
       }
 
 -- ---------------------------------------------------------------------

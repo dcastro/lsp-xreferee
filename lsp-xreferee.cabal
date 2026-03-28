@@ -70,6 +70,7 @@ library
     , mtl
     , pretty-simple
     , prettyprinter
+    , process
     , stm
     , text
     , text-rope
@@ -111,6 +112,7 @@ executable lsp-xreferee
     , mtl
     , pretty-simple
     , prettyprinter
+    , process
     , stm
     , text
     , text-rope
@@ -153,6 +155,7 @@ test-suite lsp-xreferee-test
     , mtl
     , pretty-simple
     , prettyprinter
+    , process
     , stm
     , text
     , text-rope

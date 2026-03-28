@@ -39,6 +39,7 @@ dependencies:
   - filepath
   - ixset-typed
   - classy-prelude
+  - process
 
 ghc-options:
   - -Weverything

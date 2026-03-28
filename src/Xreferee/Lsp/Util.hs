@@ -13,7 +13,9 @@ import Data.Text.Lazy qualified as LT
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
+import System.Exit (ExitCode (..))
 import System.FilePath qualified as FP
+import System.Process qualified as P
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
@@ -139,3 +141,39 @@ findSymbolAtPosition reqUri reqPos symbols =
           @= LineNum reqLine
           @<= ColumnStart reqColumn
           @>= ColumnEnd reqColumn
+
+-- | Ignores the `.git` folder, files ignored by git, and files outside the workspace.
+--
+-- NOTE:
+-- When the LSP server starts up, we use the `xreferee` package to search for symbols.
+-- This uses `git grep`, which only looks for tracked files, not untracked files.
+--
+-- However, after the server starts up:
+--   * while a developer is actively working on a project, they would also expect the LSP server to consider untracked files.
+--   * even if we decided to only look at tracked files, we'd have to have a way of detecting in real-time when a file
+--     becomes tracked (e.g. when a developer runs `git add`), so that we can start considering that file as well.
+--     I'm not sure there's an efficient way of doing that.
+--
+-- For that reason, we're considering tracked AND untracked files, and only ignore files targeted by `.gitignore`.
+shouldHandleFile :: AppLogger -> [FilePath] -> Uri -> AppM Bool
+shouldHandleFile logger workspaceDir uri = do
+  should <- case LSP.uriToFilePath uri of
+    Nothing -> pure False
+    Just fp ->
+      let fp' = FP.splitDirectories fp
+       in -- Ignore .git files
+          if ".git" `elem` fp'
+            then pure False
+            else
+              -- If the file is outside the workspace, ignore it.
+              if not (workspaceDir `isPrefixOf` fp')
+                then pure False
+                else do
+                  -- If the file is ignored by git, ignore it.
+                  exitCode <- liftIO $ P.rawSystem "git" ["check-ignore", fp]
+                  case exitCode of
+                    ExitSuccess -> pure False -- The file is ignored by git, so we should ignore it too.
+                    ExitFailure _ -> pure True -- The file is not ignored by git, so we should handle it.
+  when (not should) do
+    debugP logger "Ignoring file" uri
+  pure should

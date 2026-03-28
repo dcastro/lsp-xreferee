@@ -40,6 +40,8 @@ data AppState = AppState
   { symbols :: Symbols,
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set Uri,
-    fileVersions :: SM.Map Uri Int32
+    fileVersions :: SM.Map Uri Int32,
+    -- The current working directory, split with `splitDirectories`.
+    workspaceDir :: [FilePath]
   }
   deriving stock (Show)

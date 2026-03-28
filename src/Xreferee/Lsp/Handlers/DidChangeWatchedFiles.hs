@@ -10,7 +10,6 @@ import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import System.Directory qualified as Dir
-import System.FilePath qualified as FP
 import UnliftIO qualified as Unlift
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Log
@@ -27,7 +26,7 @@ handleDidChangeWatchedFiles logger = \req -> do
 
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
-    when (shouldHandleFile uri) $
+    whenM (Util.shouldHandleFile logger appState0.workspaceDir uri) $ do
       case fileEvent ^. LSP.type_ of
         LSP.FileChangeType_Changed -> do
           -- NOTE: when a file is changed on disk AND is open in the editor, either:
@@ -134,13 +133,6 @@ handleDidChangeWatchedFiles logger = \req -> do
       case LSP.uriToFilePath uri of
         Nothing -> pure False
         Just fp -> liftIO $ Dir.doesFileExist fp
-
-    -- Ignore files we're not interested in, e.g. `./git` files.
-    shouldHandleFile :: Uri -> Bool
-    shouldHandleFile uri =
-      case LSP.uriToFilePath uri of
-        Nothing -> False
-        Just fp -> not $ ".git" `elem` FP.splitDirectories fp
 
     -- If this path points to a file, return it.
     -- If it points to a directory, traverse the directory and return all files within it.
