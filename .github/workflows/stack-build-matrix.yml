@@ -1,0 +1,80 @@
+name: Stack Build Matrix
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Github runners:
+          # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+          - os: ubuntu
+            arch: amd64
+            runs_on: ubuntu-latest
+          - os: ubuntu
+            arch: arm64
+            runs_on: ubuntu-24.04-arm
+          - os: windows
+            arch: amd64
+            runs_on: windows-latest
+          - os: windows
+            arch: arm64
+            runs_on: windows-11-arm
+          - os: macos
+            arch: amd64
+            runs_on: macos-26-intel
+          - os: macos
+            arch: arm64
+            runs_on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Haskell with Stack
+        if: ${{ !(matrix.os == 'windows' && matrix.arch == 'arm64') }}
+        uses: haskell-actions/setup@v2
+        with:
+          enable-stack: true
+
+      # `haskell-actions/setup` is failing on Windows Arm64, so we install Stack manually as a fallback
+      # Logs:
+      # > Error: Unable to locate executable file: ghcup.
+      # > Please verify either the file path exists or the file can be found within a directory specified by the PATH environment variable.
+      # > Also verify the file has a valid extension for an executable file.
+      - name: Install Stack (Windows ARM64 fallback)
+        if: ${{ matrix.os == 'windows' && matrix.arch == 'arm64' }}
+        shell: pwsh
+        run: |
+          choco install haskell-stack --yes --no-progress
+          stack --version
+
+      - name: Build with Stack
+        run: stack build lsp-xreferee:exe:lsp-xreferee-exe --ghc-options="-O2 -Werror" --copy-bins --local-bin-path dist-bin
+
+      - name: Prepare binary artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp dist-bin/lsp-xreferee-exe dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}
+
+      - name: Prepare binary artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item dist-bin/lsp-xreferee-exe.exe dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.exe
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}*
+          if-no-files-found: error
