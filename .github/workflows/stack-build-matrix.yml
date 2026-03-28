@@ -94,11 +94,31 @@ jobs:
         run: |
           Copy-Item dist-bin/lsp-xreferee.exe dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.exe
 
-      - name: Upload binary artifact
+      - name: Compress binary artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          tar -C dist-bin -czf dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.tar.gz lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}
+
+      - name: Compress binary artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.exe -DestinationPath dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.zip -Force
+
+      - name: Upload compressed artifact (Unix)
+        if: runner.os != 'Windows'
         uses: actions/upload-artifact@v7
         with:
           name: lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}*
+          path: dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+      - name: Upload compressed artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.zip
           if-no-files-found: error
 
   release:
