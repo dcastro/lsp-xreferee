@@ -83,27 +83,16 @@ jobs:
       - name: Build with Stack
         run: stack build lsp-xreferee:exe:lsp-xreferee --ghc-options="-O2 -Werror" --copy-bins --local-bin-path dist-bin
 
-      - name: Prepare binary artifact (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          cp dist-bin/lsp-xreferee dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}
-
-      - name: Prepare binary artifact (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Copy-Item dist-bin/lsp-xreferee.exe dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.exe
-
       - name: Compress binary artifact (Unix)
         if: runner.os != 'Windows'
         run: |
-          tar -C dist-bin -czf dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.tar.gz lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}
+          tar -C dist-bin -czf dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.tar.gz lsp-xreferee
 
       - name: Compress binary artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.exe -DestinationPath dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.zip -Force
+          Compress-Archive -Path dist-bin/lsp-xreferee.exe -DestinationPath dist-bin/lsp-xreferee-${{ matrix.os }}-${{ matrix.arch }}.zip -Force
 
       - name: Upload compressed artifact (Unix)
         if: runner.os != 'Windows'
