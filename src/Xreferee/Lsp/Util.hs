@@ -172,7 +172,8 @@ shouldHandleFile uri = do
                 then pure False
                 else do
                   -- If the file is ignored by git, ignore it.
-                  exitCode <- liftIO $ P.rawSystem "git" ["check-ignore", fp]
+                  -- NOTE: using `P.rawSystem` was causing vscode to tell the LSP server to shut down when opening an ignored file.
+                  (exitCode, _, _) <- liftIO $ P.readProcessWithExitCode "git" ["check-ignore", fp] ""
                   case exitCode of
                     ExitSuccess -> pure False -- The file is ignored by git, so we should ignore it too.
                     ExitFailure _ -> pure True -- The file is not ignored by git, so we should handle it.
