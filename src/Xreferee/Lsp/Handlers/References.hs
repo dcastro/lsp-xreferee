@@ -10,13 +10,13 @@ import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
-import Xreferee.Lsp.Log
+import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Types (SymbolEntry (..), Symbols (..))
 import Xreferee.Lsp.Util qualified as Util
 
 handleReferences :: Handler AppM 'LSP.Method_TextDocumentReferences
 handleReferences = \req responder -> do
-  logReq req
+  Log.logReq req
 
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position

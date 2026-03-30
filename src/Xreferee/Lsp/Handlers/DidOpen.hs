@@ -8,7 +8,7 @@ import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
 import Xreferee.Lsp.AppM
-import Xreferee.Lsp.Log
+import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.SendDiagnostics (modifyState)
 import Xreferee.Lsp.Util qualified as Util
 
@@ -25,7 +25,7 @@ import Xreferee.Lsp.Util qualified as Util
 -- and if so, it reparses the file and updates the symbols.
 handleDidOpen :: Handler AppM 'LSP.Method_TextDocumentDidOpen
 handleDidOpen = \req -> do
-  logNot req
+  Log.logNot req
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text

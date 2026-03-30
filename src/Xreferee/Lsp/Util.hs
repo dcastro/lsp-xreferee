@@ -19,7 +19,7 @@ import System.Process qualified as P
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
-import Xreferee.Lsp.Log
+import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
@@ -30,9 +30,9 @@ deleteSymbolsForFileOrDirectory dirUri appState = do
       deletedUris = deletedAnchorsUris <> deletedReferencesUris
 
   forM_ deletedAnchorsUris \deletedUri -> do
-    debug $ "Deleted anchors from file: " <> tshow deletedUri
+    Log.debug $ "Deleted anchors from file: " <> tshow deletedUri
   forM_ deletedReferencesUris \deletedUri -> do
-    debug $ "Deleted references from file: " <> tshow deletedUri
+    Log.debug $ "Deleted references from file: " <> tshow deletedUri
 
   pure
     appState
@@ -178,5 +178,5 @@ shouldHandleFile uri = do
                     ExitSuccess -> pure False -- The file is ignored by git, so we should ignore it too.
                     ExitFailure _ -> pure True -- The file is not ignored by git, so we should handle it.
   when (not should) do
-    debug $ "Ignoring file: " <> tshow uri
+    Log.debug $ "Ignoring file: " <> tshow uri
   pure should

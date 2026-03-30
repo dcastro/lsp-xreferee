@@ -17,14 +17,14 @@ import Language.LSP.Server as LSP
 import Language.LSP.VFS qualified as VFS
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
-import Xreferee.Lsp.Log
+import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.SendDiagnostics (modifyState)
 import Xreferee.Lsp.Types (LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
 handleDidChange :: Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange = \req -> do
-  logNot req
+  Log.logNot req
 
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   vf <- Maybe.fromJust <$> LSP.getVirtualFile (LSP.toNormalizedUri uri)

@@ -30,7 +30,7 @@ import Xreferee.Lsp.Handlers.DidOpen (handleDidOpen)
 import Xreferee.Lsp.Handlers.PrepareRename (handlePrepareRename)
 import Xreferee.Lsp.Handlers.References (handleReferences)
 import Xreferee.Lsp.Handlers.Rename (handleRename)
-import Xreferee.Lsp.Log (debug, debugP)
+import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Options qualified as LspOpt
 import Xreferee.Lsp.SendDiagnostics (modifyState, sendDiagnostics)
 import Xreferee.Lsp.Types qualified as Types
@@ -59,25 +59,29 @@ run cliOptions = flip E.catches handlers $ do
     hSetBuffering logFileHandle NoBuffering
     pure logFileHandle
 
-  let -- Three loggers:
-      -- 1. To stderr (shows up in the "Output" panel in vscode)
-      -- 2. To the client (shows up as a user notification, filtered by severity)
-      -- 3. To both
-      stderrLogger :: LogAction IO (WithSeverity Text)
+  let stderrLogger :: LogAction IO (WithSeverity Text)
       stderrLogger = L.cmap show L.logStringStderr
 
+      -- "Info" and above show up in vscode's "Output" panel.
+      -- "Error" and above show up in vscode's "Output" panel + as user notifications.
       clientLogger :: (MonadLsp Config m) => LogAction m (WithSeverity Text)
       clientLogger = defaultClientLogger
 
+      -- Log everything to a file if the user specified a log file path, otherwise do nothing.
       fileLogger :: LogAction IO (WithSeverity Text)
       fileLogger =
         maybeLogFileHandle
           <&> (\logFileHandle -> LogAction $ \msg -> T.hPutStrLn logFileHandle (getMsg msg))
           & fromMaybe mempty
 
-      allLoggers :: (MonadLsp Config m) => LogAction m (WithSeverity Text)
-      allLoggers =
-        clientLogger <> L.hoistLogAction liftIO stderrLogger <> L.hoistLogAction liftIO fileLogger
+      -- Log to stderr when starting up, before we have a connection to the client.
+      startupLoggers :: LogAction IO (WithSeverity Text)
+      startupLoggers = stderrLogger <> fileLogger
+
+      -- After startup, log to the client and the file (if specified).
+      appLoggers :: (MonadLsp Config m) => LogAction m (WithSeverity Text)
+      appLoggers =
+        clientLogger <> L.hoistLogAction liftIO fileLogger
 
       serverDefinition =
         ServerDefinition
@@ -93,7 +97,7 @@ run cliOptions = flip E.catches handlers $ do
             -- TODO: config section
             configSection = "lsp-xreferee",
             doInitialize = \env _initializeMsg -> do
-              appEnv <- initialize fileLogger allLoggers
+              appEnv <- initialize appLoggers
               pure (Right (env, appEnv)),
             staticHandlers = \_caps -> mkHandlers,
             interpretHandler = \(env, appEnv) -> Iso (runAppM appEnv env) liftIO,
@@ -102,9 +106,8 @@ run cliOptions = flip E.catches handlers $ do
 
   let logToText = tshow . pretty
   runServerWithHandles
-    -- Log to both the client and stderr when we can, stderr beforehand
-    (L.cmap (fmap logToText) (stderrLogger <> fileLogger))
-    (L.cmap (fmap logToText) allLoggers)
+    (L.cmap (fmap logToText) startupLoggers)
+    (L.cmap (fmap logToText) appLoggers)
     stdin
     stdout
     serverDefinition
@@ -116,8 +119,8 @@ run cliOptions = flip E.catches handlers $ do
     ioExcept (e :: E.IOException) = print e >> return 1
     someExcept (e :: E.SomeException) = print e >> return 1
 
-initialize :: LogAction IO (WithSeverity Text) -> AppLogger -> IO AppEnv
-initialize _initLogger appLogger = do
+initialize :: AppLogger -> IO AppEnv
+initialize appLogger = do
   searchResult <- liftIO $ X.findRefsFromGit searchOpts
   workspaceDir <- Dir.getCurrentDirectory
   let symbols = Types.mkSymbols workspaceDir searchResult
@@ -163,14 +166,15 @@ mkHandlers =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
         registerDidChangeWatchedFiles
-        modifyState $ sendDiagnostics,
+        modifyState $ sendDiagnostics
+        Log.info "Server initialized",
       notificationHandler LSP.SMethod_TextDocumentDidOpen (filterNot handleDidOpen),
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
         pure (),
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \msg -> do
         cfg <- getConfig
-        debugP "Configuration changed" (msg, cfg)
+        Log.debugP "Configuration changed" (msg, cfg)
         sendNotification LSP.SMethod_WindowShowMessage $
           LSP.ShowMessageParams LSP.MessageType_Info $
             "Wibble factor set to " <> tshow cfg.wibbleFactor,
@@ -226,6 +230,6 @@ registerDidChangeWatchedFiles = do
 
   case result of
     Nothing ->
-      debug "Failed to register workspace/didChangeWatchedFiles watcher."
+      Log.err "Failed to register workspace/didChangeWatchedFiles watcher."
     Just _token ->
-      debug "Registered workspace/didChangeWatchedFiles watcher."
+      Log.info "Registered workspace/didChangeWatchedFiles watcher."

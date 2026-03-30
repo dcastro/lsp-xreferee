@@ -37,3 +37,13 @@ debugP :: (Show a) => Text -> a -> AppM ()
 debugP label x = do
   logger <- asks (.logger)
   logger <& (label <> ": " <> LT.toStrict (pShowNoColor x)) `WithSeverity` Debug
+
+info :: Text -> AppM ()
+info msg = do
+  logger <- asks (.logger)
+  logger <& msg `WithSeverity` Info
+
+err :: Text -> AppM ()
+err msg = do
+  logger <- asks (.logger)
+  logger <& msg `WithSeverity` Error

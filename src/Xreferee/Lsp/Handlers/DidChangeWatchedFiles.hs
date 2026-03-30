@@ -12,14 +12,14 @@ import Language.LSP.Server as LSP
 import System.Directory qualified as Dir
 import UnliftIO qualified as Unlift
 import Xreferee.Lsp.AppM
-import Xreferee.Lsp.Log
+import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.SendDiagnostics (sendDiagnostics)
 import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles
 handleDidChangeWatchedFiles :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeWatchedFiles = \req -> do
-  logNot req
+  Log.logNot req
   appState0 <- getState
 
   let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
@@ -44,7 +44,7 @@ handleDidChangeWatchedFiles = \req -> do
             -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
             -- We should ignore those events.
             whenM (isFileAndExists uri) do
-              debug $ "Reloading file from disk: " <> tshow uri
+              Log.debug $ "Reloading file from disk: " <> tshow uri
               contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
               -- NOTE: If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
               -- the next time the user opens it, the version will be reset to 1.
@@ -76,7 +76,7 @@ handleDidChangeWatchedFiles = \req -> do
           paths <- listPaths uri
           forM_ paths \path -> do
             let uri = LSP.filePathToUri path
-            debug $ "Loading file from disk: " <> tshow path
+            Log.debug $ "Loading file from disk: " <> tshow path
             contents <- liftIO $ T.readFile path
             let fileVersion = 1
             modifyState $ pure . Util.loadSymbolsForFile uri contents fileVersion
@@ -84,7 +84,7 @@ handleDidChangeWatchedFiles = \req -> do
           -- NOTE: We don't know whether this was a file or a directory.
           -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
           -- this uri as a prefix (in case this was a directory).
-          debug $ "Deleting symbols for file/directory: " <> tshow uri
+          Log.debug $ "Deleting symbols for file/directory: " <> tshow uri
           modifyState $ Util.deleteSymbolsForFileOrDirectory uri
 
     -- We only send diagnostics after we've processed all file events.
