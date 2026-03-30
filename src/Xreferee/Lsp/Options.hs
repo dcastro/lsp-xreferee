@@ -4,7 +4,8 @@ import ClassyPrelude
 import Options.Applicative qualified as Opt
 
 data CliOptions = CliOptions
-  { showVersionFlag :: Bool
+  { showVersionFlag :: Bool,
+    logFilePath :: Maybe FilePath
   }
 
 cliOptionsParser :: Opt.Parser CliOptions
@@ -13,6 +14,13 @@ cliOptionsParser =
     <$> Opt.switch
       ( Opt.long "version"
           <> Opt.help "Print version and exit"
+      )
+    <*> Opt.optional
+      ( Opt.strOption
+          ( Opt.long "log-file"
+              <> Opt.metavar "FilePath"
+              <> Opt.help "Write logs to the given file"
+          )
       )
 
 cliParserInfo :: Opt.ParserInfo CliOptions

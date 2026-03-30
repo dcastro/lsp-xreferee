@@ -42,7 +42,7 @@ main = do
   if cliOptions.showVersionFlag
     then putStrLn ("v" <> pack (Version.showVersion version))
     else do
-      run >>= \case
+      run cliOptions >>= \case
         0 -> exitSuccess
         c -> exitWith . ExitFailure $ c
 
@@ -52,11 +52,9 @@ searchOpts =
     { ignores = []
     }
 
-run :: IO Int
-run = flip E.catches handlers $ do
-  logFileHandle <- do
-    -- TODO: change this to a proper path
-    let logFilePath = "/home/dc/Dropbox/Projects/xreferee/lsp-xreferee/log.log"
+run :: LspOpt.CliOptions -> IO Int
+run cliOptions = flip E.catches handlers $ do
+  maybeLogFileHandle <- forM cliOptions.logFilePath \logFilePath -> do
     logFileHandle <- openFile logFilePath AppendMode
     hSetBuffering logFileHandle NoBuffering
     pure logFileHandle
@@ -72,7 +70,10 @@ run = flip E.catches handlers $ do
       clientLogger = defaultClientLogger
 
       fileLogger :: LogAction IO (WithSeverity Text)
-      fileLogger = LogAction $ \msg -> T.hPutStrLn logFileHandle (getMsg msg)
+      fileLogger =
+        maybeLogFileHandle
+          <&> (\logFileHandle -> LogAction $ \msg -> T.hPutStrLn logFileHandle (getMsg msg))
+          & fromMaybe mempty
 
       allLoggers :: (MonadLsp Config m) => LogAction m (WithSeverity Text)
       allLoggers =
