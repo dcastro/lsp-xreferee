@@ -28,7 +28,7 @@ getState = do
 -- Config
 ----------------------------------------------------------------------------
 
-data Config = Config {fooTheBar :: Bool, wibbleFactor :: Int}
+data Config = Config {}
   deriving stock (Generic, Show)
   deriving anyclass (J.ToJSON, J.FromJSON)
 

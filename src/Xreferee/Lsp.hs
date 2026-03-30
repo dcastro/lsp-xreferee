@@ -85,16 +85,14 @@ run cliOptions = flip E.catches handlers $ do
 
       serverDefinition =
         ServerDefinition
-          { defaultConfig = Config {fooTheBar = False, wibbleFactor = 0},
+          { defaultConfig = Config {},
             parseConfig = \_old v -> do
               case J.fromJSON v of
                 J.Error _e ->
-                  -- TODO review config
-                  -- J.Error e -> Left (T.pack e)
-                  Right $ Config {fooTheBar = False, wibbleFactor = 0}
+                  Right $ Config {}
                 J.Success cfg -> Right cfg,
-            onConfigChange = const $ pure (),
             -- TODO: config section
+            onConfigChange = const $ pure (),
             configSection = "lsp-xreferee",
             doInitialize = \env _initializeMsg -> do
               appEnv <- initialize appLoggers
@@ -172,12 +170,9 @@ mkHandlers =
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
         pure (),
-      notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \msg -> do
+      notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \_msg -> do
         cfg <- getConfig
-        Log.debugP "Configuration changed" (msg, cfg)
-        sendNotification LSP.SMethod_WindowShowMessage $
-          LSP.ShowMessageParams LSP.MessageType_Info $
-            "Wibble factor set to " <> tshow cfg.wibbleFactor,
+        Log.debugP "Configuration changed" cfg,
       notificationHandler LSP.SMethod_TextDocumentDidChange (filterNot handleDidChange),
       requestHandler LSP.SMethod_TextDocumentPrepareRename (filterReq handlePrepareRename),
       requestHandler LSP.SMethod_TextDocumentRename (filterReq handleRename),
