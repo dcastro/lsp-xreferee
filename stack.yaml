@@ -39,7 +39,7 @@ extra-deps:
   #   commit: 6a5c44856b4b181392c751cfc8640d1ad9648f56
   # - /home/dc/Dropbox/Projects/xreferee/xreferee/
   - git: https://github.com/dcastro/xreferee.git
-    commit: a4f6aba2774172f95151d90e26bdd4557bdfb9f1
+    commit: 8e5e15699fb5f2efd1644e7ccab63c39f03f5282
   - lsp-2.8.0.0
   - lsp-types-2.4.0.0
 
