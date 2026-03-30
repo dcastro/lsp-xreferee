@@ -9,11 +9,14 @@ import Data.Aeson qualified as J
 import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
 import Data.Text.IO qualified as T
+import Data.Version qualified as Version
 import Language.LSP.Logging (defaultClientLogger)
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
+import Options.Applicative qualified as Opt
+import Paths_lsp_xreferee (version)
 import Prettyprinter
 import System.Directory qualified as Dir
 import System.Exit
@@ -28,15 +31,20 @@ import Xreferee.Lsp.Handlers.PrepareRename (handlePrepareRename)
 import Xreferee.Lsp.Handlers.References (handleReferences)
 import Xreferee.Lsp.Handlers.Rename (handleRename)
 import Xreferee.Lsp.Log (debug, debugP)
+import Xreferee.Lsp.Options qualified as LspOpt
 import Xreferee.Lsp.SendDiagnostics (modifyState, sendDiagnostics)
 import Xreferee.Lsp.Types qualified as Types
 import Xreferee.Lsp.Util qualified as Util
 
 main :: IO ()
 main = do
-  run >>= \case
-    0 -> exitSuccess
-    c -> exitWith . ExitFailure $ c
+  cliOptions <- Opt.execParser LspOpt.cliParserInfo
+  if cliOptions.showVersionFlag
+    then putStrLn ("v" <> pack (Version.showVersion version))
+    else do
+      run >>= \case
+        0 -> exitSuccess
+        c -> exitWith . ExitFailure $ c
 
 searchOpts :: X.SearchOpts
 searchOpts =
@@ -129,7 +137,6 @@ initialize _initLogger appLogger = do
 
 -- ---------------------------------------------------------------------
 
--- TODO: review these
 syncOptions :: LSP.TextDocumentSyncOptions
 syncOptions =
   LSP.TextDocumentSyncOptions
@@ -144,8 +151,7 @@ syncOptions =
 lspOptions :: Options
 lspOptions =
   defaultOptions
-    { -- TODO: review this
-      optTextDocumentSync = Just syncOptions
+    { optTextDocumentSync = Just syncOptions
     }
 
 -- ---------------------------------------------------------------------

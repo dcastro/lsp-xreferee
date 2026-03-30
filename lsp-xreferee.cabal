@@ -36,6 +36,7 @@ library
       Xreferee.Lsp.Handlers.References
       Xreferee.Lsp.Handlers.Rename
       Xreferee.Lsp.Log
+      Xreferee.Lsp.Options
       Xreferee.Lsp.SendDiagnostics
       Xreferee.Lsp.Types
       Xreferee.Lsp.Util
@@ -68,6 +69,7 @@ library
     , lsp
     , lsp-types
     , mtl
+    , optparse-applicative
     , pretty-simple
     , prettyprinter
     , process
@@ -110,6 +112,7 @@ executable lsp-xreferee
     , lsp-types
     , lsp-xreferee
     , mtl
+    , optparse-applicative
     , pretty-simple
     , prettyprinter
     , process
@@ -153,6 +156,7 @@ test-suite lsp-xreferee-test
     , lsp-types
     , lsp-xreferee
     , mtl
+    , optparse-applicative
     , pretty-simple
     , prettyprinter
     , process

@@ -37,6 +37,7 @@ dependencies:
   - text-rope
   - unliftio
   - filepath
+  - optparse-applicative
   - ixset-typed
   - classy-prelude
   - process
