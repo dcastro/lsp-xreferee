@@ -7,6 +7,7 @@ data CliOptions = CliOptions
   { showVersionFlag :: Bool,
     logFilePath :: Maybe FilePath
   }
+  deriving stock (Show)
 
 cliOptionsParser :: Opt.Parser CliOptions
 cliOptionsParser =

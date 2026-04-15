@@ -46,7 +46,7 @@ handleDidChangeWatchedFiles = \req -> do
             whenM (isFileAndExists uri) do
               Log.debug $ "Reloading file from disk: " <> tshow uri
               contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
-              -- NOTE: If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
+              -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
               -- the next time the user opens it, the version will be reset to 1.
               let fileVersion = 1
               modifyState $ pure . Util.loadSymbolsForFile uri contents fileVersion

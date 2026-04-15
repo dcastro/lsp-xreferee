@@ -1,7 +1,7 @@
 module Xreferee.Lsp where
 
 import ClassyPrelude hiding (Handler)
-import Colog.Core (LogAction (..), WithSeverity (..))
+import Colog.Core (LogAction (..), WithSeverity (..), (<&))
 import Colog.Core qualified as L
 import Control.Exception qualified as E
 import Control.Lens hiding (Indexable, Iso)
@@ -101,6 +101,8 @@ run cliOptions = flip E.catches handlers $ do
             interpretHandler = \(env, appEnv) -> Iso (runAppM appEnv env) liftIO,
             options = lspOptions
           }
+
+  startupLoggers <& ("Starting server with options: " <> tshow cliOptions) `WithSeverity` L.Debug
 
   let logToText = tshow . pretty
   runServerWithHandles

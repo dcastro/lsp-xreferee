@@ -41,6 +41,6 @@ handleDidOpen = \req -> do
     checkIsDirty uri fileVersion appState =
       let lastSeenVersion = SM.findWithDefault 1 uri appState.fileVersions
        in -- NOTE: versions are not strictly monotonic.
-          -- If a file is changed on disk (e.g. with `echo "#(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
+          -- If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
           -- the next time the user opens it, the version will be reset to 1.
           fileVersion /= lastSeenVersion
