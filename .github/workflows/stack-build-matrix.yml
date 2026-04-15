@@ -131,7 +131,7 @@ jobs:
           sha256sum * > SHA256SUMS.txt
 
       - name: Upload assets to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             release-assets/*
