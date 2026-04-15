@@ -22,10 +22,10 @@ jobs:
         include:
           # Github runners:
           # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
-          - os: ubuntu
+          - os: linux
             arch: amd64
             runs_on: ubuntu-latest
-          - os: ubuntu
+          - os: linux
             arch: arm64
             runs_on: ubuntu-24.04-arm
           - os: windows
