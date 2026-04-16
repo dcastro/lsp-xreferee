@@ -9,6 +9,7 @@ import Data.Aeson qualified as J
 import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
 import Data.Text.IO qualified as T
+import Data.Time.Clock.POSIX qualified as Time
 import Data.Version qualified as Version
 import Language.LSP.Logging (defaultClientLogger)
 import Language.LSP.Protocol.Lens qualified as LSP
@@ -54,6 +55,7 @@ searchOpts =
 
 run :: LspOpt.CliOptions -> IO Int
 run cliOptions = flip E.catches handlers $ do
+  t0 <- Time.getPOSIXTime
   maybeLogFileHandle <- forM cliOptions.logFilePath \logFilePath -> do
     logFileHandle <- openFile logFilePath AppendMode
     hSetBuffering logFileHandle NoBuffering
@@ -96,6 +98,9 @@ run cliOptions = flip E.catches handlers $ do
             configSection = "lsp-xreferee",
             doInitialize = \env _initializeMsg -> do
               appEnv <- initialize appLoggers
+              t1 <- Time.getPOSIXTime
+              let startupTime = t1 - t0
+              startupLoggers <& ("Server initialized in " <> tshow startupTime) `WithSeverity` L.Info
               pure (Right (env, appEnv)),
             staticHandlers = \_caps -> mkHandlers,
             interpretHandler = \(env, appEnv) -> Iso (runAppM appEnv env) liftIO,
@@ -166,8 +171,7 @@ mkHandlers =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
         registerDidChangeWatchedFiles
-        modifyState $ sendDiagnostics
-        Log.info "Server initialized",
+        modifyState $ sendDiagnostics,
       notificationHandler LSP.SMethod_TextDocumentDidOpen (filterNot handleDidOpen),
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`

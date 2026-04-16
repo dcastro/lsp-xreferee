@@ -41,6 +41,7 @@ dependencies:
   - ixset-typed
   - classy-prelude
   - process
+  - time
 
 ghc-options:
   - -Weverything

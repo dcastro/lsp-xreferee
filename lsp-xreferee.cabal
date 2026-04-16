@@ -76,6 +76,7 @@ library
     , stm
     , text
     , text-rope
+    , time
     , unliftio
     , xreferee
   default-language: Haskell2010
@@ -119,6 +120,7 @@ executable lsp-xreferee
     , stm
     , text
     , text-rope
+    , time
     , unliftio
     , xreferee
   default-language: Haskell2010
@@ -163,6 +165,7 @@ test-suite lsp-xreferee-test
     , stm
     , text
     , text-rope
+    , time
     , unliftio
     , xreferee
   default-language: Haskell2010
