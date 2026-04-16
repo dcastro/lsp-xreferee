@@ -169,21 +169,21 @@ lspOptions =
 mkHandlers :: Handlers AppM
 mkHandlers =
   mconcat
-    [ notificationHandler LSP.SMethod_Initialized $ \_msg -> do
+    [ notificationHandler LSP.SMethod_Initialized $ timedNot \_msg -> do
         registerDidChangeWatchedFiles
         modifyState $ sendDiagnostics,
-      notificationHandler LSP.SMethod_TextDocumentDidOpen (filterNot handleDidOpen),
+      notificationHandler LSP.SMethod_TextDocumentDidOpen (timedNot $ filterNot handleDidOpen),
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
         pure (),
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \_msg -> do
         cfg <- getConfig
         Log.debugP "Configuration changed" cfg,
-      notificationHandler LSP.SMethod_TextDocumentDidChange (filterNot handleDidChange),
-      requestHandler LSP.SMethod_TextDocumentPrepareRename (filterReq handlePrepareRename),
-      requestHandler LSP.SMethod_TextDocumentRename (filterReq handleRename),
-      requestHandler LSP.SMethod_TextDocumentDefinition (filterReq handleDefinition),
-      requestHandler LSP.SMethod_TextDocumentReferences (filterReq handleReferences)
+      notificationHandler LSP.SMethod_TextDocumentDidChange (timedNot $ filterNot handleDidChange),
+      requestHandler LSP.SMethod_TextDocumentPrepareRename (timedReq $ filterReq handlePrepareRename),
+      requestHandler LSP.SMethod_TextDocumentRename (timedReq $ filterReq handleRename),
+      requestHandler LSP.SMethod_TextDocumentDefinition (timedReq $ filterReq handleDefinition),
+      requestHandler LSP.SMethod_TextDocumentReferences (timedReq $ filterReq handleReferences)
       -- Workspace events
       -- NOTE: `workspace/didChangeWatchedFiles` must be registered dynamically, see `registerDidChangeWatchedFiles`
     ]
@@ -211,6 +211,24 @@ mkHandlers =
       let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
       whenM (Util.shouldHandleFile uri) do
         handler msg
+
+    timedReq :: forall from (method :: LSP.Method from 'LSP.Request). Handler AppM method -> Handler AppM method
+    timedReq handler = \req responder -> do
+      let method = req ^. LSP.method
+      t0 <- liftIO Time.getPOSIXTime
+      handler req responder
+      t1 <- liftIO Time.getPOSIXTime
+      let duration = t1 - t0
+      Log.debugP ("Handled " <> tshow method <> " in") duration
+
+    timedNot :: forall from (method :: LSP.Method from 'LSP.Notification). Handler AppM method -> Handler AppM method
+    timedNot handler = \req -> do
+      let method = req ^. LSP.method
+      t0 <- liftIO Time.getPOSIXTime
+      handler req
+      t1 <- liftIO Time.getPOSIXTime
+      let duration = t1 - t0
+      Log.debugP ("Handled " <> tshow method <> " in") duration
 
 -- | Ask the client to start watching files and sending `workspace/didChangeWatchedFiles` notifications.
 registerDidChangeWatchedFiles :: AppM ()
