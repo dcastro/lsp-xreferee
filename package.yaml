@@ -42,6 +42,7 @@ dependencies:
   - classy-prelude
   - process
   - time
+  - bytestring
 
 ghc-options:
   - -Weverything

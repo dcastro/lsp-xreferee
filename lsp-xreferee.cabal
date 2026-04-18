@@ -59,6 +59,7 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , classy-prelude
     , co-log-core
     , containers
@@ -102,6 +103,7 @@ executable lsp-xreferee
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , classy-prelude
     , co-log-core
     , containers
@@ -147,6 +149,7 @@ test-suite lsp-xreferee-test
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , classy-prelude
     , co-log-core
     , containers

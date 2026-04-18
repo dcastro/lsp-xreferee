@@ -28,7 +28,7 @@ handleDidOpen = \req -> do
   Log.logNot req
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
-  let contents = req ^. LSP.params . LSP.textDocument . LSP.text
+  let contents = req ^. LSP.params . LSP.textDocument . LSP.text . to fromStrict . to encodeUtf8
 
   modifyState \appState -> do
     if not (checkIsDirty uri fileVersion appState)

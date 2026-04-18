@@ -2,6 +2,7 @@ module Xreferee.Lsp.Util where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
+import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.IxSet.Typed ((@+), (@<=), (@=), (@>=))
 import Data.IxSet.Typed qualified as Ix
 import Data.IxSet.Typed.Util qualified as Ix
@@ -9,7 +10,6 @@ import Data.Map qualified as Map
 import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import Data.Text.Lazy qualified as LT
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
@@ -62,7 +62,7 @@ isWithinDir file dir =
     addTrailingPathSeparator =
       T.pack . FP.addTrailingPathSeparator . T.unpack
 
-loadSymbolsForFile :: Uri -> Text -> Int32 -> AppState -> AppState
+loadSymbolsForFile :: Uri -> LByteString -> Int32 -> AppState -> AppState
 loadSymbolsForFile uri contents fileVersion appState0 =
   let -- Remove the symbols for this file
       appState1 = deleteSymbolsForFile uri appState0
@@ -86,11 +86,11 @@ loadSymbolsForFile uri contents fileVersion appState0 =
           fileVersions = SM.delete uri appState.fileVersions
         }
 
-    parseFile :: Text -> Uri -> Symbols
+    parseFile :: LByteString -> Uri -> Symbols
     parseFile contents uri =
-      (T.lines contents `zip` [0 ..])
+      (LBS.lines contents `zip` [0 ..])
         <&> ( \(line, lineNum) ->
-                let (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
+                let (anchors, refs) = X.parseLabels line 1 -- 1-based columns
                     mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
                     mkSymbolEntry sym columnRange =
                       SymbolEntry

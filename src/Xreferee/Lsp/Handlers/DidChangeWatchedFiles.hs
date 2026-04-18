@@ -2,8 +2,8 @@ module Xreferee.Lsp.Handlers.DidChangeWatchedFiles where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Maybe qualified as Maybe
-import Data.Text.IO qualified as T
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
@@ -45,7 +45,7 @@ handleDidChangeWatchedFiles = \req -> do
             -- We should ignore those events.
             whenM (isFileAndExists uri) do
               Log.debug $ "Reloading file from disk: " <> tshow uri
-              contents <- liftIO $ T.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
+              contents <- liftIO $ LBS.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
               -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
               -- the next time the user opens it, the version will be reset to 1.
               let fileVersion = 1
@@ -77,7 +77,7 @@ handleDidChangeWatchedFiles = \req -> do
           forM_ paths \path -> do
             let uri = LSP.filePathToUri path
             Log.debug $ "Loading file from disk: " <> tshow path
-            contents <- liftIO $ T.readFile path
+            contents <- liftIO $ LBS.readFile path
             let fileVersion = 1
             modifyState $ pure . Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Deleted -> do

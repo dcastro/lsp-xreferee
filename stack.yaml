@@ -35,14 +35,11 @@ packages:
 # forks / in-progress versions pinned to a git hash. For example:
 #
 extra-deps:
-  # - git: https://github.com/brandonchinn178/xreferee.git
-  #   commit: 6a5c44856b4b181392c751cfc8640d1ad9648f56
-  # - /home/dc/Dropbox/Projects/xreferee/xreferee/
-  - git: https://github.com/dcastro/xreferee.git
-    commit: 8e5e15699fb5f2efd1644e7ccab63c39f03f5282
   - lsp-2.8.0.0
   - lsp-types-2.4.0.0
 
+  - git: https://github.com/brandonchinn178/xreferee.git
+    commit: d7546f5d98401f7a50bf3ac1f2c3519f5518087b
   - git: https://github.com/dcastro/ixset-typed.git
     commit: cee2074ca84b9b003b7da03f0930ad96c514c531
 

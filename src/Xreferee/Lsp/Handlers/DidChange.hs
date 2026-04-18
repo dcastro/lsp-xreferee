@@ -40,8 +40,13 @@ handleDidChange = \req -> do
     let newSymbols =
           linesToParse
             <&> ( \lineNum ->
-                    let line = rope & Rope.getLine (fromIntegral @UInt @Word lineNum) & Rope.toText
-                        (anchors, refs) = X.parseLabels (LT.fromStrict line) 1 -- 1-based columns
+                    let line =
+                          rope
+                            & Rope.getLine (fromIntegral @UInt @Word lineNum)
+                            & Rope.toText
+                            & LT.fromStrict
+                            & encodeUtf8
+                        (anchors, refs) = X.parseLabels line 1 -- 1-based columns
                         mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
                         mkSymbolEntry sym columnRange =
                           SymbolEntry
