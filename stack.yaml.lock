@@ -19,15 +19,15 @@ packages:
   original:
     hackage: lsp-types-2.4.0.0
 - completed:
-    commit: d7546f5d98401f7a50bf3ac1f2c3519f5518087b
+    commit: 5d333183289ba455fcfc59b3f24e867da48cd325
     git: https://github.com/brandonchinn178/xreferee.git
     name: xreferee
     pantry-tree:
-      sha256: 33bf1363c1904f886a84153c0ef6612ab2bc037f8ef44d309dd7594d19b13acc
+      sha256: a2f0888f133880c3cc46065a3e201f9eb4e94ed5ab6b4e16467647826b604d45
       size: 4934
     version: 1.1.0
   original:
-    commit: d7546f5d98401f7a50bf3ac1f2c3519f5518087b
+    commit: 5d333183289ba455fcfc59b3f24e867da48cd325
     git: https://github.com/brandonchinn178/xreferee.git
 - completed:
     commit: cee2074ca84b9b003b7da03f0930ad96c514c531
