@@ -29,15 +29,15 @@ handleRename = \req responder -> do
   state <- getState
 
   let maybeMatch = case (Util.findSymbolAtPosition uri pos state.symbols.anchors, Util.findSymbolAtPosition uri pos state.symbols.references) of
-        (Just anchorEntry, _) -> Just $ X.toLabel anchorEntry.symbol
-        (_, Just refEntry) -> Just $ X.toLabel refEntry.symbol
+        (Just anchorEntry, _) -> Just $ X.getLabel anchorEntry.symbol
+        (_, Just refEntry) -> Just $ X.getLabel refEntry.symbol
         (Nothing, Nothing) -> Nothing
 
   case maybeMatch of
     Nothing -> responder $ Right $ LSP.InR LSP.Null
     Just label -> do
-      let anchor = label & X.fromLabel @X.Anchor
-      let ref = label & X.fromLabel @X.Reference
+      let anchor = X.Anchor label
+      let ref = X.Reference label
 
       let anchorEdits :: Map Uri [LSP.TextEdit] =
             state.symbols.anchors
@@ -48,7 +48,7 @@ handleRename = \req responder -> do
                   <&> \entry ->
                     LSP.TextEdit
                       { _range = Util.symbolLocToLspRange entry.loc,
-                        _newText = newLabelName & X.fromLabel @X.Anchor & X.renderLabel
+                        _newText = newLabelName & X.Anchor & X.renderLabel X.defaultDelims
                       }
 
       let refEdits :: Map Uri [LSP.TextEdit] =
@@ -60,7 +60,7 @@ handleRename = \req responder -> do
                   <&> \entry ->
                     LSP.TextEdit
                       { _range = Util.symbolLocToLspRange entry.loc,
-                        _newText = newLabelName & X.fromLabel @X.Reference & X.renderLabel
+                        _newText = newLabelName & X.Reference & X.renderLabel X.defaultDelims
                       }
 
       let workspaceEdit =

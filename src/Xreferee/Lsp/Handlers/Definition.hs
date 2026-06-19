@@ -30,7 +30,7 @@ handleDefinition = \req responder -> do
     Just refEntry -> do
       -- Find the corresponding anchor(s).
       -- Ideally there will be 1, but there can also be 0 (if the reference is broken) or more than 1 (if there are duplicate anchors).
-      let anchor = refEntry.symbol & X.toLabel & X.fromLabel @X.Anchor
+      let anchor = refEntry.symbol & X.getLabel & X.Anchor
       -- Build links from the reference to the anchor(s)
       let links =
             state.symbols.anchors

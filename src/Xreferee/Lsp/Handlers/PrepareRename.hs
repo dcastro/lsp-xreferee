@@ -21,8 +21,8 @@ handlePrepareRename = \req responder -> do
   -- NOTE: looking up in the symbols table may not be the best solution at the moment (re-parsing the line may be faster).
   -- But after we move the symbols table to an `IxSet`, then a symbol lookup may indeed be better.
   let maybeMatch = case (Util.findSymbolAtPosition uri pos state.symbols.anchors, Util.findSymbolAtPosition uri pos state.symbols.references) of
-        (Just anchorEntry, _) -> Just (X.toLabel anchorEntry.symbol, anchorEntry.loc)
-        (_, Just refEntry) -> Just (X.toLabel refEntry.symbol, refEntry.loc)
+        (Just anchorEntry, _) -> Just (X.getLabel anchorEntry.symbol, anchorEntry.loc)
+        (_, Just refEntry) -> Just (X.getLabel refEntry.symbol, refEntry.loc)
         (Nothing, Nothing) -> Nothing
 
   case maybeMatch of

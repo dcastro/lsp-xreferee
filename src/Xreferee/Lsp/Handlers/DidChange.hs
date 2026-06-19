@@ -46,7 +46,7 @@ handleDidChange = \req -> do
                             & Rope.toText
                             & LT.fromStrict
                             & encodeUtf8
-                        (anchors, refs) = X.parseLabels line 1 -- 1-based columns
+                        (anchors, refs) = X.parseLabels X.defaultDelims line
                         mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
                         mkSymbolEntry sym columnRange =
                           SymbolEntry

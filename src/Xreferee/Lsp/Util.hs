@@ -90,7 +90,7 @@ loadSymbolsForFile uri contents fileVersion appState0 =
     parseFile contents uri =
       (LBS.lines contents `zip` [0 ..])
         <&> ( \(line, lineNum) ->
-                let (anchors, refs) = X.parseLabels line 1 -- 1-based columns
+                let (anchors, refs) = X.parseLabels X.defaultDelims line
                     mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
                     mkSymbolEntry sym columnRange =
                       SymbolEntry

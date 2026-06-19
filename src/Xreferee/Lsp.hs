@@ -53,7 +53,8 @@ searchOpts =
     { ignores = [],
       -- When using xreferee in the context of an editor extension (as opposed to using it in e.g. a CI),
       -- we want xreferee to detect changes done to files not yet tracked by git.
-      includeUntracked = True
+      includeUntracked = True,
+      delims = X.defaultDelims
     }
 
 run :: LspOpt.CliOptions -> IO Int

@@ -28,6 +28,6 @@ handleReferences = \req responder -> do
       responder $ Right $ LSP.InR LSP.Null
     Just anchorEntry -> do
       -- Find the corresponding references
-      let ref = anchorEntry.symbol & X.toLabel & X.fromLabel @X.Reference
+      let ref = anchorEntry.symbol & X.getLabel & X.Reference
       let locs = state.symbols.references @= ref & Ix.toList <&> \refEntry -> Util.symbolLocToLspLocation refEntry.loc
       responder $ Right $ LSP.InL locs
