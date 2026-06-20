@@ -13,12 +13,11 @@ import Data.Text qualified as T
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
-import System.Exit (ExitCode (..))
 import System.FilePath qualified as FP
-import System.Process qualified as P
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
@@ -171,12 +170,8 @@ shouldHandleFile uri = do
               if not (workspaceDir `isPrefixOf` fp')
                 then pure False
                 else do
-                  -- If the file is ignored by git, ignore it.
-                  -- NOTE: using `P.rawSystem` was causing vscode to tell the LSP server to shut down when opening an ignored file.
-                  (exitCode, _, _) <- liftIO $ P.readProcessWithExitCode "git" ["check-ignore", fp] ""
-                  case exitCode of
-                    ExitSuccess -> pure False -- The file is ignored by git, so we should ignore it too.
-                    ExitFailure _ -> pure True -- The file is not ignored by git, so we should handle it.
+                  -- If the file is ignored by git, don't handle it.
+                  liftIO $ not <$> Git.checkIgnore fp
   when (not should) do
     Log.debug $ "Ignoring file: " <> tshow uri
   pure should
