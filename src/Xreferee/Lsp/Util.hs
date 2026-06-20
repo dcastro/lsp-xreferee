@@ -142,18 +142,6 @@ findSymbolAtPosition reqUri reqPos symbols =
           @>= ColumnEnd reqColumn
 
 -- | Ignores the `.git` folder, files ignored by git, and files outside the workspace.
---
--- NOTE:
--- When the LSP server starts up, we use the `xreferee` package to search for symbols.
--- This uses `git grep`, which only looks for tracked files, not untracked files.
---
--- However, after the server starts up:
---   * while a developer is actively working on a project, they would also expect the LSP server to consider untracked files.
---   * even if we decided to only look at tracked files, we'd have to have a way of detecting in real-time when a file
---     becomes tracked (e.g. when a developer runs `git add`), so that we can start considering that file as well.
---     I'm not sure there's an efficient way of doing that.
---
--- For that reason, we're considering tracked AND untracked files, and only ignore files targeted by `.gitignore`.
 shouldHandleFile :: Uri -> AppM Bool
 shouldHandleFile uri = do
   workspaceDir <- asks (.workspaceDir)
