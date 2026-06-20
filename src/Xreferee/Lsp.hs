@@ -80,11 +80,15 @@ run cliOptions = flip E.catches handlers $ do
           <&> (\logFileHandle -> LogAction $ \msg -> T.hPutStrLn logFileHandle (getMsg msg))
           & fromMaybe mempty
 
-      -- Log to stderr when starting up, before we have a connection to the client.
+      -- During startup, before we have a connection to the client:
+      --   * Log everything to stderr
+      --   * Log everything to a file if the user specified a log file path
       startupLoggers :: LogAction IO (WithSeverity Text)
       startupLoggers = stderrLogger <> fileLogger
 
-      -- After startup, log to the client and the file (if specified).
+      -- After startup:
+      --   * Log to the client (only Info and Error)
+      --   * Log everything to a file if the user specified a log file path
       appLoggers :: (MonadLsp Config m) => LogAction m (WithSeverity Text)
       appLoggers =
         clientLogger <> L.hoistLogAction liftIO fileLogger
