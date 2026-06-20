@@ -143,7 +143,8 @@ initialize appLogger = do
       AppState
         { symbols,
           filesWithDiagnostics = Set.empty,
-          fileVersions = SM.empty
+          fileVersions = SM.empty,
+          shouldHandleFiles = SM.empty
         }
   pure
     AppEnv

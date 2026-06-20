@@ -10,7 +10,6 @@ import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import System.Directory qualified as Dir
-import UnliftIO qualified as Unlift
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.SendDiagnostics (sendDiagnostics)
@@ -49,7 +48,7 @@ handleDidChangeWatchedFiles = \req -> do
               -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
               -- the next time the user opens it, the version will be reset to 1.
               let fileVersion = 1
-              modifyState $ pure . Util.loadSymbolsForFile uri contents fileVersion
+              modifyStateWithoutDiagnostics_ $ pure . Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Created -> do
           -- NOTE: this is triggered when:
           --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
@@ -79,29 +78,22 @@ handleDidChangeWatchedFiles = \req -> do
             Log.debug $ "Loading file from disk: " <> tshow path
             contents <- liftIO $ LBS.readFile path
             let fileVersion = 1
-            modifyState $ pure . Util.loadSymbolsForFile uri contents fileVersion
+            modifyStateWithoutDiagnostics_ $ pure . Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Deleted -> do
           -- NOTE: We don't know whether this was a file or a directory.
           -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
           -- this uri as a prefix (in case this was a directory).
           Log.debug $ "Deleting symbols for file/directory: " <> tshow uri
-          modifyState $ Util.deleteSymbolsForFileOrDirectory uri
+          modifyStateWithoutDiagnostics_ $ Util.deleteSymbolsForFileOrDirectory uri
 
     -- We only send diagnostics after we've processed all file events.
     -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
-    modifyState \appState1 -> do
+    -- We compare the symbols from before processing any events, to the symbols after processing all events.
+    modifyStateWithoutDiagnostics_ \appState1 -> do
       if appState0.symbols == appState1.symbols
         then pure appState1
         else sendDiagnostics appState1
   where
-    -- This function shadows the top-level `modifyState`.
-    -- It's only used here, and it doesn't automatically publish the diagnostics.
-    -- Diagnostics are only published after we're done handling all the events.
-    modifyState :: (AppState -> AppM AppState) -> AppM ()
-    modifyState act = do
-      env <- ask
-      Unlift.modifyMVar_ env.state act
-
     -- When creating a folder, sometimes we might get a "created" event for the folder,
     -- and sometimes we might get "created" events for the folder AND every file within the folder.
     --
