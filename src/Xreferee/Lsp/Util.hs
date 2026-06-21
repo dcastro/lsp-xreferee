@@ -2,6 +2,7 @@ module Xreferee.Lsp.Util where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
+import Control.Monad.State (StateT, get, put, runStateT)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.IxSet.Typed ((@+), (@<=), (@=), (@>=))
 import Data.IxSet.Typed qualified as Ix
@@ -13,6 +14,7 @@ import Data.Text qualified as T
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
+import Language.LSP.Server (MonadLsp)
 import System.FilePath qualified as FP
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
@@ -22,7 +24,7 @@ import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
-deleteSymbolsForFileOrDirectory :: Uri -> AppState -> AppM AppState
+deleteSymbolsForFileOrDirectory :: (MonadReader AppEnv m, MonadLsp config m) => Uri -> AppState -> m AppState
 deleteSymbolsForFileOrDirectory dirUri appState = do
   let (anchors', deletedAnchorsUris) = delete @Anchor appState.symbols.anchors
       (references', deletedReferencesUris) = delete @Reference appState.symbols.references
@@ -148,32 +150,38 @@ findSymbolAtPosition reqUri reqPos symbols =
 -- #(ref:shouldHandleFile)
 shouldHandleFile :: Uri -> AppM Bool
 shouldHandleFile uri = do
-  should <- modifyStateWithoutDiagnostics \appState0 -> do
-    -- Check if we have this result cached from a previous check.
-    case SM.lookup uri appState0.shouldHandleFiles of
-      Just should -> pure (appState0, should)
-      Nothing -> do
-        workspaceDir <- asks (.workspaceDir)
+  workspaceDir <- asks (.workspaceDir)
+  modifyStateWithoutDiagnostics \appState -> do
+    (should, appState) <- flip runStateT appState $ shouldHandleFile' workspaceDir uri
+    pure (appState, should)
 
-        should <- case LSP.uriToFilePath uri of
-          Nothing -> pure False
-          Just fp ->
-            let fp' = FP.splitDirectories fp
-             in -- Ignore .git files
-                if ".git" `elem` fp'
-                  then pure False
-                  else
-                    -- If the file is outside the workspace, ignore it.
-                    if not (workspaceDir `isPrefixOf` fp')
-                      then pure False
-                      else do
-                        -- If the file is ignored by git, don't handle it.
-                        liftIO $ not <$> Git.checkIgnore fp
+-- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
+-- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
+shouldHandleFile' :: (MonadReader AppEnv m, MonadLsp config m) => [FilePath] -> Uri -> StateT AppState m Bool
+shouldHandleFile' workspaceDir uri = do
+  appState0 <- get
+  -- Check if we have this result cached from a previous check.
+  case SM.lookup uri appState0.shouldHandleFiles of
+    Just should -> pure should
+    Nothing -> do
+      should <- case LSP.uriToFilePath uri of
+        Nothing -> pure False
+        Just fp ->
+          let fp' = FP.splitDirectories fp
+           in -- Ignore .git files
+              if ".git" `elem` fp'
+                then pure False
+                else
+                  -- If the file is outside the workspace, ignore it.
+                  if not (workspaceDir `isPrefixOf` fp')
+                    then pure False
+                    else do
+                      -- If the file is ignored by git, don't handle it.
+                      liftIO $ not <$> Git.checkIgnore fp
 
-        let appState1 = appState0 {shouldHandleFiles = SM.insert uri should appState0.shouldHandleFiles}
-        pure (appState1, should)
+      put $ appState0 {shouldHandleFiles = SM.insert uri should appState0.shouldHandleFiles}
 
-  when (not should) do
-    Log.debug $ "Ignoring file: " <> tshow uri
+      when (not should) do
+        lift $ Log.debug $ "Ignoring file: " <> tshow uri
 
-  pure should
+      pure should

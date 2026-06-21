@@ -2,6 +2,7 @@ module Xreferee.Lsp.Handlers.DidChangeWatchedFiles where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
+import Control.Monad.State (StateT, execStateT, get, modify, put)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Maybe qualified as Maybe
 import Language.LSP.Protocol.Lens qualified as LSP
@@ -12,20 +13,53 @@ import Language.LSP.Server as LSP
 import System.Directory qualified as Dir
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Log qualified as Log
-import Xreferee.Lsp.SendDiagnostics (sendDiagnostics)
+import Xreferee.Lsp.SendDiagnostics (modifyState)
 import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles
 handleDidChangeWatchedFiles :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeWatchedFiles = \req -> do
   Log.logNot req
-  appState0 <- getState
+  modifyState \appState0 -> do
+    let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
 
-  let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
+    workspaceDir <- asks (.workspaceDir)
 
+    flip execStateT appState0 $ runHandler workspaceDir fileEvents
+  where
+    -- When creating a folder, sometimes we might get a "created" event for the folder,
+    -- and sometimes we might get "created" events for the folder AND every file within the folder.
+    --
+    -- To avoid reparsing files unnecessarily, we normalize the events by deduping "created" events.
+    -- If we find "created" events for a folder and a file within that folder, we ignore the "created" event for the file.
+    dedupFileCreatedEvents :: [LSP.FileEvent] -> [LSP.FileEvent]
+    dedupFileCreatedEvents events =
+      foldl'
+        ( \acc event ->
+            if event ^. LSP.type_ == LSP.FileChangeType_Created
+              then
+                -- If we already have a "created" event for a parent directory, we can ignore this "created" event for the child file.
+                if any (\seenEvent -> seenEvent ^. LSP.type_ == LSP.FileChangeType_Created && ((event ^. LSP.uri) `Util.isWithinDir` (seenEvent ^. LSP.uri))) acc
+                  then acc
+                  else event : acc
+              else event : acc
+        )
+        []
+        events
+        & reverse
+
+-- | Proccess a list of file events.
+--
+-- This function continously updates the app state, without pushing diagnostics to the client.
+-- We only push diagnostics to the client after we've processed all file events.
+--
+-- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
+-- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
+runHandler :: (MonadLsp Config m, MonadReader AppEnv m) => [FilePath] -> [LSP.FileEvent] -> StateT AppState m ()
+runHandler workspaceDir fileEvents = do
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
-    whenM (Util.shouldHandleFile uri) do
+    whenM (Util.shouldHandleFile' workspaceDir uri) do
       case fileEvent ^. LSP.type_ of
         LSP.FileChangeType_Changed -> do
           -- NOTE: when a file is changed on disk AND is open in the editor, either:
@@ -39,16 +73,16 @@ handleDidChangeWatchedFiles = \req -> do
           --      * The file on disk and the editor buffer are now out of sync. We prioritize the buffer, so we don't need to handle this event.
           --
           -- In other words: we only care about this event if the file is NOT open in the editor.
-          whenM (not <$> isFileOpen uri) do
+          whenM (not <$> lift (isFileOpen uri)) do
             -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
             -- We should ignore those events.
             whenM (isFileAndExists uri) do
-              Log.debug $ "Reloading file from disk: " <> tshow uri
+              lift $ Log.debug $ "Reloading file from disk: " <> tshow uri
               contents <- liftIO $ LBS.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
               -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
               -- the next time the user opens it, the version will be reset to 1.
               let fileVersion = 1
-              modifyStateWithoutDiagnostics_ $ pure . Util.loadSymbolsForFile uri contents fileVersion
+              modify $ Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Created -> do
           -- NOTE: this is triggered when:
           --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
@@ -75,52 +109,25 @@ handleDidChangeWatchedFiles = \req -> do
           paths <- listPaths uri
           forM_ paths \path -> do
             let uri = LSP.filePathToUri path
-            Log.debug $ "Loading file from disk: " <> tshow path
+            lift $ Log.debug $ "Loading file from disk: " <> tshow path
             contents <- liftIO $ LBS.readFile path
             let fileVersion = 1
-            modifyStateWithoutDiagnostics_ $ pure . Util.loadSymbolsForFile uri contents fileVersion
+            modify $ Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Deleted -> do
           -- NOTE: We don't know whether this was a file or a directory.
           -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
           -- this uri as a prefix (in case this was a directory).
-          Log.debug $ "Deleting symbols for file/directory: " <> tshow uri
-          modifyStateWithoutDiagnostics_ $ Util.deleteSymbolsForFileOrDirectory uri
-
-  -- We only send diagnostics after we've processed all file events.
-  -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
-  -- We compare the symbols from before processing any events, to the symbols after processing all events.
-  modifyStateWithoutDiagnostics_ \appState1 -> do
-    if appState0.symbols == appState1.symbols
-      then pure appState1
-      else sendDiagnostics appState1
+          lift $ Log.debug $ "Deleting symbols for file/directory: " <> tshow uri
+          appState <- get
+          appState <- lift $ Util.deleteSymbolsForFileOrDirectory uri appState
+          put appState
   where
-    -- When creating a folder, sometimes we might get a "created" event for the folder,
-    -- and sometimes we might get "created" events for the folder AND every file within the folder.
-    --
-    -- To avoid reparsing files unnecessarily, we normalize the events by deduping "created" events.
-    -- If we find "created" events for a folder and a file within that folder, we ignore the "created" event for the file.
-    dedupFileCreatedEvents :: [LSP.FileEvent] -> [LSP.FileEvent]
-    dedupFileCreatedEvents events =
-      foldl'
-        ( \acc event ->
-            if event ^. LSP.type_ == LSP.FileChangeType_Created
-              then
-                -- If we already have a "created" event for a parent directory, we can ignore this "created" event for the child file.
-                if any (\seenEvent -> seenEvent ^. LSP.type_ == LSP.FileChangeType_Created && ((event ^. LSP.uri) `Util.isWithinDir` (seenEvent ^. LSP.uri))) acc
-                  then acc
-                  else event : acc
-              else event : acc
-        )
-        []
-        events
-        & reverse
-
-    isFileOpen :: Uri -> AppM Bool
+    isFileOpen :: (MonadLsp Config m) => Uri -> m Bool
     isFileOpen uri = do
       vf <- getVirtualFile (LSP.toNormalizedUri uri)
       pure $ Maybe.isJust vf
 
-    isFileAndExists :: Uri -> AppM Bool
+    isFileAndExists :: (MonadIO m) => Uri -> m Bool
     isFileAndExists uri =
       case LSP.uriToFilePath uri of
         Nothing -> pure False
@@ -128,7 +135,7 @@ handleDidChangeWatchedFiles = \req -> do
 
     -- If this path points to a file, return it.
     -- If it points to a directory, traverse the directory and return all files within it.
-    listPaths :: Uri -> AppM [FilePath]
+    listPaths :: (MonadIO m) => Uri -> m [FilePath]
     listPaths uri =
       case LSP.uriToFilePath uri of
         Nothing -> pure []

@@ -5,45 +5,46 @@ import Colog.Core (Severity (..), WithSeverity (..), (<&))
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as LT
 import Language.LSP.Protocol.Message qualified as LSP
+import Language.LSP.Server (MonadLsp)
 import Text.Pretty.Simple (pShowNoColor)
-import Xreferee.Lsp.AppM
+import Xreferee.Lsp.AppM (AppEnv, getLogger)
 
-logReq :: (Show (LSP.MessageParams a)) => LSP.TRequestMessage a -> AppM ()
+logReq :: (MonadReader AppEnv m, MonadLsp config m) => (Show (LSP.MessageParams a)) => LSP.TRequestMessage a -> m ()
 logReq msg = do
-  logger <- asks (.logger)
+  logger <- asks getLogger
   logger <& (T.pack $ show msg) `WithSeverity` Debug
 
-logNot :: (Show (LSP.MessageParams a)) => LSP.TNotificationMessage a -> AppM ()
+logNot :: (MonadReader AppEnv m, MonadLsp config m) => (Show (LSP.MessageParams a)) => LSP.TNotificationMessage a -> m ()
 logNot msg = do
-  logger <- asks (.logger)
+  logger <- asks getLogger
   logger <& (T.pack $ show msg) `WithSeverity` Debug
 
-logReqP :: (Show (LSP.MessageParams a)) => LSP.TRequestMessage a -> AppM ()
+logReqP :: (MonadReader AppEnv m, MonadLsp config m) => (Show (LSP.MessageParams a)) => LSP.TRequestMessage a -> m ()
 logReqP msg = do
-  logger <- asks (.logger)
+  logger <- asks getLogger
   logger <& (LT.toStrict $ pShowNoColor msg) `WithSeverity` Debug
 
-logNotP :: (Show (LSP.MessageParams a)) => LSP.TNotificationMessage a -> AppM ()
+logNotP :: (MonadReader AppEnv m, MonadLsp config m) => (Show (LSP.MessageParams a)) => LSP.TNotificationMessage a -> m ()
 logNotP msg = do
-  logger <- asks (.logger)
+  logger <- asks getLogger
   logger <& (LT.toStrict $ pShowNoColor msg) `WithSeverity` Debug
 
-debug :: Text -> AppM ()
+debug :: (MonadReader AppEnv m, MonadLsp config m) => Text -> m ()
 debug msg = do
-  logger <- asks (.logger)
+  logger <- asks getLogger
   logger <& msg `WithSeverity` Debug
 
-debugP :: (Show a) => Text -> a -> AppM ()
+debugP :: (MonadReader AppEnv m, MonadLsp config m) => (Show a) => Text -> a -> m ()
 debugP label x = do
-  logger <- asks (.logger)
+  logger <- asks getLogger
   logger <& (label <> ": " <> LT.toStrict (pShowNoColor x)) `WithSeverity` Debug
 
-info :: Text -> AppM ()
+info :: (MonadReader AppEnv m, MonadLsp config m) => Text -> m ()
 info msg = do
-  logger <- asks (.logger)
+  logger <- asks getLogger
   logger <& msg `WithSeverity` Info
 
-err :: Text -> AppM ()
+err :: (MonadReader AppEnv m, MonadLsp config m) => Text -> m ()
 err msg = do
-  logger <- asks (.logger)
+  logger <- asks getLogger
   logger <& msg `WithSeverity` Error

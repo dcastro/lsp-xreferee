@@ -70,7 +70,7 @@ run cliOptions = flip E.catches handlers $ do
 
       -- "Info" and above show up in vscode's "Output" panel.
       -- "Error" and above show up in vscode's "Output" panel + as user notifications.
-      clientLogger :: (MonadLsp Config m) => LogAction m (WithSeverity Text)
+      clientLogger :: (MonadLsp config m) => LogAction m (WithSeverity Text)
       clientLogger = defaultClientLogger
 
       -- Log everything to a file if the user specified a log file path, otherwise do nothing.
@@ -89,7 +89,7 @@ run cliOptions = flip E.catches handlers $ do
       -- After startup:
       --   * Log to the client (only Info and Error)
       --   * Log everything to a file if the user specified a log file path
-      appLoggers :: (MonadLsp Config m) => LogAction m (WithSeverity Text)
+      appLoggers :: (MonadLsp config m) => LogAction m (WithSeverity Text)
       appLoggers =
         clientLogger <> L.hoistLogAction liftIO fileLogger
 
@@ -252,7 +252,7 @@ registerDidChangeWatchedFiles = do
           { _watchers = [watcher]
           }
 
-  appLogger <- asks (.logger)
+  appLogger <- asks getLogger
   let coreLogger = L.cmap (fmap (tshow . pretty)) appLogger
   result <- LSP.registerCapability coreLogger LSP.SMethod_WorkspaceDidChangeWatchedFiles registrationOptions handleDidChangeWatchedFiles
 
