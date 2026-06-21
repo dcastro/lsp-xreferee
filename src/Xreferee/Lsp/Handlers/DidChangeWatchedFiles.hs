@@ -86,13 +86,13 @@ handleDidChangeWatchedFiles = \req -> do
           Log.debug $ "Deleting symbols for file/directory: " <> tshow uri
           modifyStateWithoutDiagnostics_ $ Util.deleteSymbolsForFileOrDirectory uri
 
-    -- We only send diagnostics after we've processed all file events.
-    -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
-    -- We compare the symbols from before processing any events, to the symbols after processing all events.
-    modifyStateWithoutDiagnostics_ \appState1 -> do
-      if appState0.symbols == appState1.symbols
-        then pure appState1
-        else sendDiagnostics appState1
+  -- We only send diagnostics after we've processed all file events.
+  -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
+  -- We compare the symbols from before processing any events, to the symbols after processing all events.
+  modifyStateWithoutDiagnostics_ \appState1 -> do
+    if appState0.symbols == appState1.symbols
+      then pure appState1
+      else sendDiagnostics appState1
   where
     -- When creating a folder, sometimes we might get a "created" event for the folder,
     -- and sometimes we might get "created" events for the folder AND every file within the folder.
