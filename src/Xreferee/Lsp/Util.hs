@@ -141,25 +141,39 @@ findSymbolAtPosition reqUri reqPos symbols =
           @<= ColumnStart reqColumn
           @>= ColumnEnd reqColumn
 
--- | Ignores the `.git` folder, files ignored by git, and files outside the workspace.
+-- | Checks whether we should ignore or process a given file.
+--
+-- We ignore the `.git` folder, files ignored by git, and files outside the workspace.
+--
+-- #(ref:shouldHandleFile)
 shouldHandleFile :: Uri -> AppM Bool
 shouldHandleFile uri = do
-  workspaceDir <- asks (.workspaceDir)
+  should <- modifyStateWithoutDiagnostics \appState0 -> do
+    -- Check if we have this result cached from a previous check.
+    case SM.lookup uri appState0.shouldHandleFiles of
+      Just should -> pure (appState0, should)
+      Nothing -> do
+        workspaceDir <- asks (.workspaceDir)
 
-  should <- case LSP.uriToFilePath uri of
-    Nothing -> pure False
-    Just fp ->
-      let fp' = FP.splitDirectories fp
-       in -- Ignore .git files
-          if ".git" `elem` fp'
-            then pure False
-            else
-              -- If the file is outside the workspace, ignore it.
-              if not (workspaceDir `isPrefixOf` fp')
-                then pure False
-                else do
-                  -- If the file is ignored by git, don't handle it.
-                  liftIO $ not <$> Git.checkIgnore fp
+        should <- case LSP.uriToFilePath uri of
+          Nothing -> pure False
+          Just fp ->
+            let fp' = FP.splitDirectories fp
+             in -- Ignore .git files
+                if ".git" `elem` fp'
+                  then pure False
+                  else
+                    -- If the file is outside the workspace, ignore it.
+                    if not (workspaceDir `isPrefixOf` fp')
+                      then pure False
+                      else do
+                        -- If the file is ignored by git, don't handle it.
+                        liftIO $ not <$> Git.checkIgnore fp
+
+        let appState1 = appState0 {shouldHandleFiles = SM.insert uri should appState0.shouldHandleFiles}
+        pure (appState1, should)
+
   when (not should) do
     Log.debug $ "Ignoring file: " <> tshow uri
+
   pure should

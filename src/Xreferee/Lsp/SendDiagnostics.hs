@@ -17,6 +17,7 @@ import Xreferee.Lsp.Types (SymbolEntry (..), SymbolLoc (..), Symbols (..))
 import Xreferee.Lsp.Util qualified as Util
 
 -- | Modify the app state, and then send diagnostics to the client if the symbols have changed.
+-- #(ref:modifyState)
 modifyState :: (AppState -> AppM AppState) -> AppM ()
 modifyState act = do
   env <- ask
