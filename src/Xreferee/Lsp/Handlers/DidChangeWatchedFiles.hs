@@ -23,9 +23,7 @@ handleDidChangeWatchedFiles = \req -> do
   modifyState \appState0 -> do
     let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
 
-    workspaceDir <- view workspaceDir
-
-    flip execStateT appState0 $ runHandler workspaceDir fileEvents
+    flip execStateT appState0 $ runHandler fileEvents
   where
     -- When creating a folder, sometimes we might get a "created" event for the folder,
     -- and sometimes we might get "created" events for the folder AND every file within the folder.
@@ -55,11 +53,11 @@ handleDidChangeWatchedFiles = \req -> do
 --
 -- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
 -- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
-runHandler :: (MonadLsp Config m, MonadReader r m, HasAppEnv r) => [FilePath] -> [LSP.FileEvent] -> StateT AppState m ()
-runHandler workspaceDir fileEvents = do
+runHandler :: (MonadLsp Config m, MonadReader r m, HasAppEnv r) => [LSP.FileEvent] -> StateT AppState m ()
+runHandler fileEvents = do
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
-    whenM (Util.shouldHandleFile' workspaceDir uri) do
+    whenM (Util.shouldHandleFile' uri) do
       case fileEvent ^. LSP.type_ of
         LSP.FileChangeType_Changed -> do
           -- NOTE: when a file is changed on disk AND is open in the editor, either:

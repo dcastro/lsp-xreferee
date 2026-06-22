@@ -150,15 +150,15 @@ findSymbolAtPosition reqUri reqPos symbols =
 -- #(ref:shouldHandleFile)
 shouldHandleFile :: Uri -> AppM Bool
 shouldHandleFile uri = do
-  workspaceDir <- view workspaceDir
   modifyStateWithoutDiagnostics \appState -> do
-    (should, appState) <- flip runStateT appState $ shouldHandleFile' workspaceDir uri
+    (should, appState) <- flip runStateT appState $ shouldHandleFile' uri
     pure (appState, should)
 
 -- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
 -- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
-shouldHandleFile' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => [FilePath] -> Uri -> StateT AppState m Bool
-shouldHandleFile' workspaceDir uri = do
+shouldHandleFile' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> StateT AppState m Bool
+shouldHandleFile' uri = do
+  workspaceDir <- view workspaceDir
   appState0 <- get
   -- Check if we have this result cached from a previous check.
   case SM.lookup uri appState0.shouldHandleFiles of
