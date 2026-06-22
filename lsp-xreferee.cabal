@@ -39,6 +39,7 @@ library
       Xreferee.Lsp.Log
       Xreferee.Lsp.Options
       Xreferee.Lsp.SendDiagnostics
+      Xreferee.Lsp.TH
       Xreferee.Lsp.Types
       Xreferee.Lsp.Util
   other-modules:
@@ -77,6 +78,7 @@ library
     , prettyprinter
     , process
     , stm
+    , template-haskell
     , text
     , text-rope
     , time
@@ -123,6 +125,7 @@ executable lsp-xreferee
     , prettyprinter
     , process
     , stm
+    , template-haskell
     , text
     , text-rope
     , time
@@ -170,6 +173,7 @@ test-suite lsp-xreferee-test
     , prettyprinter
     , process
     , stm
+    , template-haskell
     , text
     , text-rope
     , time

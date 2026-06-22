@@ -23,7 +23,7 @@ handleDidChangeWatchedFiles = \req -> do
   modifyState \appState0 -> do
     let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
 
-    workspaceDir <- asks (.workspaceDir)
+    workspaceDir <- view workspaceDir
 
     flip execStateT appState0 $ runHandler workspaceDir fileEvents
   where
@@ -55,7 +55,7 @@ handleDidChangeWatchedFiles = \req -> do
 --
 -- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
 -- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
-runHandler :: (MonadLsp Config m, MonadReader AppEnv m) => [FilePath] -> [LSP.FileEvent] -> StateT AppState m ()
+runHandler :: (MonadLsp Config m, MonadReader r m, HasAppEnv r) => [FilePath] -> [LSP.FileEvent] -> StateT AppState m ()
 runHandler workspaceDir fileEvents = do
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri

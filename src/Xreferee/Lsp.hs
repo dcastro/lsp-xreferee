@@ -111,7 +111,7 @@ run cliOptions = flip E.catches handlers $ do
               startupLoggers <& ("Server initialized in " <> tshow startupTime) `WithSeverity` L.Info
               pure (Right (env, appEnv)),
             staticHandlers = \_caps -> mkHandlers,
-            interpretHandler = \(env, appEnv) -> Iso (runAppM appEnv env) liftIO,
+            interpretHandler = \(env, appEnv) -> Iso {forward = (runAppM appEnv env), backward = liftIO},
             options = lspOptions
           }
 
@@ -132,7 +132,7 @@ run cliOptions = flip E.catches handlers $ do
     ioExcept (e :: E.IOException) = print e >> return 1
     someExcept (e :: E.SomeException) = print e >> return 1
 
-initialize :: AppLogger -> IO AppEnv
+initialize :: AppLogger -> IO AppData
 initialize appLogger = do
   searchResult <- liftIO $ X.findRefsFromGit searchOpts
   workspaceDir <- Dir.getCurrentDirectory
@@ -147,10 +147,13 @@ initialize appLogger = do
           shouldHandleFiles = SM.empty
         }
   pure
-    AppEnv
-      { logger = appLogger,
-        state = state,
-        workspaceDir = FP.splitDirectories workspaceDir
+    AppData
+      { env =
+          AppEnv
+            { logger = appLogger,
+              workspaceDir = FP.splitDirectories workspaceDir
+            },
+        state
       }
 
 -- ---------------------------------------------------------------------
@@ -252,7 +255,7 @@ registerDidChangeWatchedFiles = do
           { _watchers = [watcher]
           }
 
-  appLogger <- asks getLogger
+  appLogger <- view logger
   let coreLogger = L.cmap (fmap (tshow . pretty)) appLogger
   result <- LSP.registerCapability coreLogger LSP.SMethod_WorkspaceDidChangeWatchedFiles registrationOptions handleDidChangeWatchedFiles
 

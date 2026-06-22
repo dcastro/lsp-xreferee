@@ -43,6 +43,7 @@ dependencies:
   - process
   - time
   - bytestring
+  - template-haskell
 
 ghc-options:
   - -Weverything

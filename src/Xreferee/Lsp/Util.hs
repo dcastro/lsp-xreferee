@@ -24,7 +24,7 @@ import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
-deleteSymbolsForFileOrDirectory :: (MonadReader AppEnv m, MonadLsp config m) => Uri -> AppState -> m AppState
+deleteSymbolsForFileOrDirectory :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> AppState -> m AppState
 deleteSymbolsForFileOrDirectory dirUri appState = do
   let (anchors', deletedAnchorsUris) = delete @Anchor appState.symbols.anchors
       (references', deletedReferencesUris) = delete @Reference appState.symbols.references
@@ -150,14 +150,14 @@ findSymbolAtPosition reqUri reqPos symbols =
 -- #(ref:shouldHandleFile)
 shouldHandleFile :: Uri -> AppM Bool
 shouldHandleFile uri = do
-  workspaceDir <- asks (.workspaceDir)
+  workspaceDir <- view workspaceDir
   modifyStateWithoutDiagnostics \appState -> do
     (should, appState) <- flip runStateT appState $ shouldHandleFile' workspaceDir uri
     pure (appState, should)
 
 -- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
 -- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
-shouldHandleFile' :: (MonadReader AppEnv m, MonadLsp config m) => [FilePath] -> Uri -> StateT AppState m Bool
+shouldHandleFile' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => [FilePath] -> Uri -> StateT AppState m Bool
 shouldHandleFile' workspaceDir uri = do
   appState0 <- get
   -- Check if we have this result cached from a previous check.
