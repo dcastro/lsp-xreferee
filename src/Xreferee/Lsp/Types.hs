@@ -87,7 +87,7 @@ data ColumnRange = ColumnRange
   deriving stock (Show, Eq, Ord)
 
 mkSymbols :: FilePath -> SearchResult -> Symbols
-mkSymbols workspaceDir sr =
+mkSymbols repoRootDir sr =
   Symbols
     { anchors = mkIxSet sr.anchors,
       references = mkIxSet sr.references
@@ -102,7 +102,9 @@ mkSymbols workspaceDir sr =
     mkSymbolLoc :: X.LabelLoc -> SymbolLoc
     mkSymbolLoc l =
       SymbolLoc
-        { uri = Lsp.filePathToUri $ workspaceDir </> l.filepath,
+        { -- The paths returned by `xrefcheck` are relative to the git repo root,
+          -- so we have to prepend the repo root to get an absolute path, which we then convert to a `file://` URI.
+          uri = Lsp.filePathToUri $ repoRootDir </> l.filepath,
           lineNum = xToLsp l.lineNum,
           columnRange = mkColumnRange l.columnRange
         }
