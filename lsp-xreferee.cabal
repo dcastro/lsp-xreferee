@@ -28,6 +28,7 @@ library
       Data.IxSet.Typed.Util
       Xreferee.Lsp
       Xreferee.Lsp.AppM
+      Xreferee.Lsp.FileWatchers
       Xreferee.Lsp.Git
       Xreferee.Lsp.Handlers.Definition
       Xreferee.Lsp.Handlers.DidChange
