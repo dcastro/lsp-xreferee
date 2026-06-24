@@ -158,7 +158,7 @@ shouldHandleFile uri = do
 -- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
 shouldHandleFile' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> StateT AppState m Bool
 shouldHandleFile' uri = do
-  workspaceDir <- view workspaceDir
+  repoRootDir <- view repoRootDir
   appState0 <- get
   -- Check if we have this result cached from a previous check.
   case SM.lookup uri appState0.shouldHandleFiles of
@@ -172,8 +172,8 @@ shouldHandleFile' uri = do
               if ".git" `elem` fp'
                 then pure False
                 else
-                  -- If the file is outside the workspace, ignore it.
-                  if not (workspaceDir `isPrefixOf` fp')
+                  -- If the file is outside the git repo, ignore it.
+                  if not (repoRootDir `isPrefixOf` fp')
                     then pure False
                     else do
                       -- If the file is ignored by git, don't handle it.

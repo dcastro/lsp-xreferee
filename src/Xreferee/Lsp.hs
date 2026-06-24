@@ -19,11 +19,11 @@ import Language.LSP.Server as LSP
 import Options.Applicative qualified as Opt
 import Paths_lsp_xreferee (version)
 import Prettyprinter
-import System.Directory qualified as Dir
 import System.Exit
 import System.FilePath qualified as FP
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Handlers.Definition (handleDefinition)
 import Xreferee.Lsp.Handlers.DidChange (handleDidChange)
 import Xreferee.Lsp.Handlers.DidChangeWatchedFiles (handleDidChangeWatchedFiles)
@@ -135,8 +135,8 @@ run cliOptions = flip E.catches handlers $ do
 initialize :: AppLogger -> IO AppData
 initialize appLogger = do
   searchResult <- liftIO $ X.findRefsFromGit searchOpts
-  workspaceDir <- Dir.getCurrentDirectory
-  let symbols = Types.mkSymbols workspaceDir searchResult
+  repoRootDir <- Git.getRepoRoot
+  let symbols = Types.mkSymbols repoRootDir searchResult
 
   state <-
     newMVar
@@ -151,7 +151,7 @@ initialize appLogger = do
       { env =
           AppEnv
             { logger = appLogger,
-              workspaceDir = FP.splitDirectories workspaceDir
+              repoRootDir = FP.splitDirectories repoRootDir
             },
         state
       }
@@ -245,9 +245,20 @@ mkHandlers =
 -- | Ask the client to start watching files and sending `workspace/didChangeWatchedFiles` notifications.
 registerDidChangeWatchedFiles :: AppM ()
 registerDidChangeWatchedFiles = do
+  repoRootDir <- view repoRootDir
+
   let watcher =
         LSP.FileSystemWatcher
-          { _globPattern = LSP.GlobPattern $ LSP.InL $ LSP.Pattern "**/*",
+          { _globPattern =
+              LSP.GlobPattern $
+                LSP.InR $
+                  LSP.RelativePattern
+                    { -- Watch every file in this git repo, not JUST in this workspace folder.
+                      -- Files in a git repo can all reference each other.
+                      -- If the user opens the editor in a subdirectory of the git repo, we still want to watch all files in the repo.
+                      _baseUri = LSP.InR $ LSP.filePathToUri $ FP.joinPath repoRootDir,
+                      _pattern = LSP.Pattern "**/*"
+                    },
             _kind = Nothing
           }
       registrationOptions =

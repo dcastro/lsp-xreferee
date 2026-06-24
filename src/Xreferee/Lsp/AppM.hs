@@ -48,7 +48,7 @@ data AppData = AppData
 data AppEnv = AppEnv
   { logger :: AppLogger,
     -- | The current working directory, split with `splitDirectories`.
-    workspaceDir :: [FilePath]
+    repoRootDir :: [FilePath]
   }
 
 -- `logger` is a polymorphic field, and GHC does not resolve

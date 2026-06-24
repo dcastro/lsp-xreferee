@@ -70,7 +70,8 @@ runHandler fileEvents = do
           --      * e.g. the user has unsaved changes in the editor and then switches branches
           --      * The file on disk and the editor buffer are now out of sync. We prioritize the buffer, so we don't need to handle this event.
           --
-          -- In other words: we only care about this event if the file is NOT open in the editor.
+          -- In other words: in all situations where the file changes AND is open in the editor, we do NOT need to handle this event.
+          --  I.e., we only care about this event if the file is NOT open in the editor.
           whenM (not <$> lift (isFileOpen uri)) do
             -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
             -- We should ignore those events.
