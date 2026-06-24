@@ -245,9 +245,20 @@ mkHandlers =
 -- | Ask the client to start watching files and sending `workspace/didChangeWatchedFiles` notifications.
 registerDidChangeWatchedFiles :: AppM ()
 registerDidChangeWatchedFiles = do
+  repoRootDir <- view repoRootDir
+
   let watcher =
         LSP.FileSystemWatcher
-          { _globPattern = LSP.GlobPattern $ LSP.InL $ LSP.Pattern "**/*",
+          { _globPattern =
+              LSP.GlobPattern $
+                LSP.InR $
+                  LSP.RelativePattern
+                    { -- Watch every file in this git repo, not JUST in this workspace folder.
+                      -- Files in a git repo can all reference each other.
+                      -- If the user opens the editor in a subdirectory of the git repo, we still want to watch all files in the repo.
+                      _baseUri = LSP.InR $ LSP.filePathToUri $ FP.joinPath repoRootDir,
+                      _pattern = LSP.Pattern "**/*"
+                    },
             _kind = Nothing
           }
       registrationOptions =
