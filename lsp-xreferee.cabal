@@ -32,6 +32,7 @@ library
       Xreferee.Lsp.Git
       Xreferee.Lsp.Handlers.Definition
       Xreferee.Lsp.Handlers.DidChange
+      Xreferee.Lsp.Handlers.DidChangeGitIgnore
       Xreferee.Lsp.Handlers.DidChangeWatchedFiles
       Xreferee.Lsp.Handlers.DidOpen
       Xreferee.Lsp.Handlers.PrepareRename

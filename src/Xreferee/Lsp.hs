@@ -47,16 +47,6 @@ main = do
         0 -> exitSuccess
         c -> exitWith . ExitFailure $ c
 
-searchOpts :: X.SearchOpts
-searchOpts =
-  X.SearchOpts
-    { ignores = [],
-      -- When using xreferee in the context of an editor extension (as opposed to using it in e.g. a CI),
-      -- we want xreferee to detect changes done to files not yet tracked by git.
-      includeUntracked = True,
-      delims = X.defaultDelims
-    }
-
 run :: LspOpt.CliOptions -> IO Int
 run cliOptions = flip E.catches handlers $ do
   t0 <- Time.getPOSIXTime
@@ -134,7 +124,7 @@ run cliOptions = flip E.catches handlers $ do
 
 initialize :: AppLogger -> IO AppData
 initialize appLogger = do
-  searchResult <- liftIO $ X.findRefsFromGit searchOpts
+  searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
   repoRootDir <- Git.getRepoRoot
   let symbols = Types.mkSymbols repoRootDir searchResult
 
