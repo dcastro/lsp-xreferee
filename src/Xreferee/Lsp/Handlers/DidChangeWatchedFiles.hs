@@ -17,6 +17,9 @@ import Xreferee.Lsp.SendDiagnostics (modifyState)
 import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles
+--
+-- Watches for file changes in the git repo that happen outside the editor
+-- (e.g. when the user switches git branches, or the user deletes a file via the file manager).
 handleDidChangeWatchedFiles :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeWatchedFiles = \req -> do
   Log.logNot req
