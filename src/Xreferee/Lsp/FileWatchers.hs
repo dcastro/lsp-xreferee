@@ -3,6 +3,7 @@ module Xreferee.Lsp.FileWatchers where
 import ClassyPrelude
 import Colog.Core qualified as L
 import Control.Lens
+import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server qualified as LSP
@@ -17,26 +18,20 @@ watchRepoFiles :: AppM ()
 watchRepoFiles = do
   repoRootDir <- view repoRootDir
 
-  -- Register file watcher to update symbols when files are created / deleted / edited
-  registerDidChangeWatchedFiles
-    (mkFileWatcher repoRootDir "**/*")
-    Handlers.handleDidChangeWatchedFiles
+  let watcher = mkFileWatcher repoRootDir "**/*"
 
-  -- Register file watcher to reload all symbols when `.gitignore` changes
-  registerDidChangeWatchedFiles
-    (mkFileWatcher repoRootDir "**/.gitignore")
-    Handlers.handleDidChangeGitIgnore
+  -- A single `workspace/didChangeWatchedFiles` registration can have only ONE handler:
+  -- the `lsp` library keys dynamic registrations by method, so registering twice for the
+  -- same method overwrites the first handler. Instead, we register a single handler that
+  -- dispatches to the right internal handler.
+  let handler = dispatcher
 
--- | Ask the client to start watching files and sending `workspace/didChangeWatchedFiles` notifications.
-registerDidChangeWatchedFiles :: LSP.FileSystemWatcher -> LSP.Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles -> AppM ()
-registerDidChangeWatchedFiles watcher handler = do
+  appLogger <- view logger
+  let coreLogger = L.cmap (fmap (tshow . pretty)) appLogger
   let registrationOptions =
         LSP.DidChangeWatchedFilesRegistrationOptions
           { _watchers = [watcher]
           }
-
-  appLogger <- view logger
-  let coreLogger = L.cmap (fmap (tshow . pretty)) appLogger
   result <- LSP.registerCapability coreLogger LSP.SMethod_WorkspaceDidChangeWatchedFiles registrationOptions handler
 
   case result of
@@ -44,6 +39,24 @@ registerDidChangeWatchedFiles watcher handler = do
       Log.err "Failed to register workspace/didChangeWatchedFiles watcher."
     Just _token ->
       Log.info "Registered workspace/didChangeWatchedFiles watcher."
+
+-- | Dispatch a `workspace/didChangeWatchedFiles` notification to the appropriate handler.
+--
+-- If any `.gitignore` file changed, we rebuild the entire symbol index via
+-- 'Handlers.handleDidChangeGitIgnore' (it reloads from git, which subsumes every other
+-- file event in this batch). Otherwise we handle the events incrementally.
+dispatcher :: LSP.Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
+dispatcher = \req -> do
+  let changes = req ^. LSP.params . LSP.changes
+  if any (isGitIgnore . view LSP.uri) changes
+    then Handlers.handleDidChangeGitIgnore req
+    else Handlers.handleDidChangeWatchedFiles req
+  where
+    isGitIgnore :: LSP.Uri -> Bool
+    isGitIgnore uri =
+      case LSP.uriToFilePath uri of
+        Nothing -> False
+        Just fp -> FP.takeFileName fp == ".gitignore"
 
 mkFileWatcher :: [FilePath] -> Text -> LSP.FileSystemWatcher
 mkFileWatcher repoRootDir ptrn =
