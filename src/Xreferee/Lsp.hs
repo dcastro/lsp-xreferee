@@ -23,10 +23,10 @@ import System.Exit
 import System.FilePath qualified as FP
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.FileWatchers qualified as FileWatchers
 import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Handlers.Definition (handleDefinition)
 import Xreferee.Lsp.Handlers.DidChange (handleDidChange)
-import Xreferee.Lsp.Handlers.DidChangeWatchedFiles (handleDidChangeWatchedFiles)
 import Xreferee.Lsp.Handlers.DidOpen (handleDidOpen)
 import Xreferee.Lsp.Handlers.PrepareRename (handlePrepareRename)
 import Xreferee.Lsp.Handlers.References (handleReferences)
@@ -46,16 +46,6 @@ main = do
       run cliOptions >>= \case
         0 -> exitSuccess
         c -> exitWith . ExitFailure $ c
-
-searchOpts :: X.SearchOpts
-searchOpts =
-  X.SearchOpts
-    { ignores = [],
-      -- When using xreferee in the context of an editor extension (as opposed to using it in e.g. a CI),
-      -- we want xreferee to detect changes done to files not yet tracked by git.
-      includeUntracked = True,
-      delims = X.defaultDelims
-    }
 
 run :: LspOpt.CliOptions -> IO Int
 run cliOptions = flip E.catches handlers $ do
@@ -134,7 +124,7 @@ run cliOptions = flip E.catches handlers $ do
 
 initialize :: AppLogger -> IO AppData
 initialize appLogger = do
-  searchResult <- liftIO $ X.findRefsFromGit searchOpts
+  searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
   repoRootDir <- Git.getRepoRoot
   let symbols = Types.mkSymbols repoRootDir searchResult
 
@@ -182,7 +172,7 @@ mkHandlers :: Handlers AppM
 mkHandlers =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ timedNot \_msg -> do
-        registerDidChangeWatchedFiles
+        FileWatchers.watchRepoFiles
         modifyState $ sendDiagnostics,
       notificationHandler LSP.SMethod_TextDocumentDidOpen (timedNot $ filterNot handleDidOpen),
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
@@ -241,37 +231,3 @@ mkHandlers =
       t1 <- liftIO Time.getPOSIXTime
       let duration = t1 - t0
       Log.debugP ("Handled " <> tshow method <> " in") duration
-
--- | Ask the client to start watching files and sending `workspace/didChangeWatchedFiles` notifications.
-registerDidChangeWatchedFiles :: AppM ()
-registerDidChangeWatchedFiles = do
-  repoRootDir <- view repoRootDir
-
-  let watcher =
-        LSP.FileSystemWatcher
-          { _globPattern =
-              LSP.GlobPattern $
-                LSP.InR $
-                  LSP.RelativePattern
-                    { -- Watch every file in this git repo, not JUST in this workspace folder.
-                      -- Files in a git repo can all reference each other.
-                      -- If the user opens the editor in a subdirectory of the git repo, we still want to watch all files in the repo.
-                      _baseUri = LSP.InR $ LSP.filePathToUri $ FP.joinPath repoRootDir,
-                      _pattern = LSP.Pattern "**/*"
-                    },
-            _kind = Nothing
-          }
-      registrationOptions =
-        LSP.DidChangeWatchedFilesRegistrationOptions
-          { _watchers = [watcher]
-          }
-
-  appLogger <- view logger
-  let coreLogger = L.cmap (fmap (tshow . pretty)) appLogger
-  result <- LSP.registerCapability coreLogger LSP.SMethod_WorkspaceDidChangeWatchedFiles registrationOptions handleDidChangeWatchedFiles
-
-  case result of
-    Nothing ->
-      Log.err "Failed to register workspace/didChangeWatchedFiles watcher."
-    Just _token ->
-      Log.info "Registered workspace/didChangeWatchedFiles watcher."

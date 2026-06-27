@@ -24,6 +24,17 @@ import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
+-- The options we use to search for symbols using the `xreferee` package.
+searchOpts :: X.SearchOpts
+searchOpts =
+  X.SearchOpts
+    { ignores = [],
+      -- When using xreferee in the context of an editor extension (as opposed to using it in e.g. a CI),
+      -- we want xreferee to detect changes done to files not yet tracked by git.
+      includeUntracked = True,
+      delims = X.defaultDelims
+    }
+
 deleteSymbolsForFileOrDirectory :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> AppState -> m AppState
 deleteSymbolsForFileOrDirectory dirUri appState = do
   let (anchors', deletedAnchorsUris) = delete @Anchor appState.symbols.anchors
@@ -63,6 +74,7 @@ isWithinDir file dir =
     addTrailingPathSeparator =
       T.pack . FP.addTrailingPathSeparator . T.unpack
 
+-- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
 loadSymbolsForFile :: Uri -> LByteString -> Int32 -> AppState -> AppState
 loadSymbolsForFile uri contents fileVersion appState0 =
   let -- Remove the symbols for this file
