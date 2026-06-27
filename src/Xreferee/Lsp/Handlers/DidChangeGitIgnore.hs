@@ -60,4 +60,5 @@ reloadAllSymbols = do
         let fileVersion = VFS.virtualFileVersion vfile
         let uri = LFS.fromNormalizedUri normalizedUri
         let contents = VFS.virtualFileText vfile & encodeUtf8
-        modify $ Util.loadSymbolsForFile uri (LBS.fromStrict contents) fileVersion
+        whenM (Util.shouldHandleFile' uri) do
+          modify $ Util.loadSymbolsForFile uri (LBS.fromStrict contents) fileVersion
