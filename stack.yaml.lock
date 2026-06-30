@@ -19,16 +19,16 @@ packages:
   original:
     hackage: lsp-types-2.4.0.0
 - completed:
-    commit: 3fe68e9472b69e1e554d346c1231fcc22fbd7380
-    git: https://github.com/brandonchinn178/xreferee.git
+    commit: 2b39ef6a9920212f04ce478beb07f505453b3399
+    git: https://github.com/dcastro/xreferee.git
     name: xreferee
     pantry-tree:
-      sha256: 3637c4caa39f2e82b84567207e2a9f5e1208fdce8e18d7b8d9176c5892076cb5
+      sha256: fc021f340fd962e1abcae635360e953f9ded220637f2e2d3444cb68804dcf8aa
       size: 4935
     version: 1.1.1
   original:
-    commit: 3fe68e9472b69e1e554d346c1231fcc22fbd7380
-    git: https://github.com/brandonchinn178/xreferee.git
+    commit: 2b39ef6a9920212f04ce478beb07f505453b3399
+    git: https://github.com/dcastro/xreferee.git
 - completed:
     commit: cee2074ca84b9b003b7da03f0930ad96c514c531
     git: https://github.com/dcastro/ixset-typed.git

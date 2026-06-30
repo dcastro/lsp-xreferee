@@ -38,8 +38,10 @@ extra-deps:
   - lsp-2.8.0.0
   - lsp-types-2.4.0.0
 
-  - git: https://github.com/brandonchinn178/xreferee.git
-    commit: 3fe68e9472b69e1e554d346c1231fcc22fbd7380
+  # - git: https://github.com/brandonchinn178/xreferee.git
+  #   commit: 3fe68e9472b69e1e554d346c1231fcc22fbd7380
+  - git: https://github.com/dcastro/xreferee.git
+    commit: 0ccff11308864bb28743f54f75893dd3fb13900a
   - git: https://github.com/dcastro/ixset-typed.git
     commit: cee2074ca84b9b003b7da03f0930ad96c514c531
 
