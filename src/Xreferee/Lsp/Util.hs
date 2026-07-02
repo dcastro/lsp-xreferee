@@ -212,7 +212,10 @@ shouldHandleFile' uri = do
                     then pure False
                     else do
                       -- If the file is ignored by git, don't handle it.
-                      liftIO $ not <$> Git.checkIgnore fp
+                      -- If the file is binary, don't handle it.
+                      ignored <- liftIO $ Git.checkIgnore fp
+                      isBinary <- liftIO $ Git.isBinaryFile fp
+                      pure $ not ignored && not isBinary
 
       put $ appState0 {shouldHandleFiles = SM.insert uri should appState0.shouldHandleFiles}
 
