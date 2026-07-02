@@ -13,6 +13,7 @@ import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Handlers.DidChangeGitIgnore qualified as Handlers
 import Xreferee.Lsp.Handlers.DidChangeWatchedFiles qualified as Handlers
 import Xreferee.Lsp.Log qualified as Log
+import Xreferee.Lsp.Util qualified as Util
 
 watchRepoFiles :: AppM ()
 watchRepoFiles = do
@@ -32,7 +33,12 @@ watchRepoFiles = do
         LSP.DidChangeWatchedFilesRegistrationOptions
           { _watchers = [watcher]
           }
-  result <- LSP.registerCapability coreLogger LSP.SMethod_WorkspaceDidChangeWatchedFiles registrationOptions handler
+  result <-
+    LSP.registerCapability
+      coreLogger
+      LSP.SMethod_WorkspaceDidChangeWatchedFiles
+      registrationOptions
+      (Util.timedNot handler)
 
   case result of
     Nothing ->

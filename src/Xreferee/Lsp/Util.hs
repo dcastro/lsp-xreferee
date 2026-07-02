@@ -11,10 +11,13 @@ import Data.Map qualified as Map
 import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Time.Clock.POSIX qualified as Time
 import Language.LSP.Protocol.Lens qualified as LSP
+import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server (MonadLsp)
+import Language.LSP.Server qualified as LSP
 import System.FilePath qualified as FP
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
@@ -154,6 +157,26 @@ findSymbolAtPosition reqUri reqPos symbols =
           @= LineNum reqLine
           @<= ColumnStart reqColumn
           @>= ColumnEnd reqColumn
+
+-- | Wraps a request handler to log the time it took to handle the request.
+timedReq :: forall from (method :: LSP.Method from 'LSP.Request). LSP.Handler AppM method -> LSP.Handler AppM method
+timedReq handler = \req responder -> do
+  let method = req ^. LSP.method
+  t0 <- liftIO Time.getPOSIXTime
+  handler req responder
+  t1 <- liftIO Time.getPOSIXTime
+  let duration = t1 - t0
+  Log.debugP ("Handled " <> tshow method <> " in") duration
+
+-- | Wraps a notification handler to log the time it took to handle the notification.
+timedNot :: forall from (method :: LSP.Method from 'LSP.Notification). LSP.Handler AppM method -> LSP.Handler AppM method
+timedNot handler = \req -> do
+  let method = req ^. LSP.method
+  t0 <- liftIO Time.getPOSIXTime
+  handler req
+  t1 <- liftIO Time.getPOSIXTime
+  let duration = t1 - t0
+  Log.debugP ("Handled " <> tshow method <> " in") duration
 
 -- | Checks whether we should ignore or process a given file.
 --
