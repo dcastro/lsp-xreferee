@@ -74,6 +74,7 @@ default-extensions:
   - OverloadedStrings
   - NoImplicitPrelude
   - ImpredicativeTypes
+  - StrictData
 
 library:
   source-dirs: src

@@ -6,4 +6,4 @@ default:
 filewatch:
     watchexec --clear --restart \
       --exts hs,yaml \
-      -- 'stack install --fast ; kdialog --passivepopup Done'
+      -- 'stack install --ghc-options="-O2" ; kdialog --passivepopup Done'

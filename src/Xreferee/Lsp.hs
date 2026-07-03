@@ -95,7 +95,7 @@ run cliOptions = flip E.catches handlers $ do
             onConfigChange = const $ pure (),
             configSection = "lsp-xreferee",
             doInitialize = \env _initializeMsg -> do
-              appEnv <- initialize appLoggers
+              appEnv <- initialize appLoggers startupLoggers
               t1 <- Time.getPOSIXTime
               let startupTime = t1 - t0
               startupLoggers <& ("Server initialized in " <> tshow startupTime) `WithSeverity` L.Info
@@ -122,11 +122,16 @@ run cliOptions = flip E.catches handlers $ do
     ioExcept (e :: E.IOException) = print e >> return 1
     someExcept (e :: E.SomeException) = print e >> return 1
 
-initialize :: AppLogger -> IO AppData
-initialize appLogger = do
+initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> IO AppData
+initialize appLogger _startupLogger = do
   searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
+
   repoRootDir <- Git.getRepoRoot
-  let symbols = Types.mkSymbols repoRootDir searchResult
+  -- Front-load the evaluation of all symbols.
+  -- This work would still need to be done later anyway, when pushing diagnostics
+  -- (e.g. while handling `SMethod_Initialized`),
+  -- so it's no use keeping thunks around.
+  let !symbols = force $ Types.mkSymbols repoRootDir searchResult
 
   state <-
     newMVar

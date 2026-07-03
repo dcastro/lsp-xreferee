@@ -31,7 +31,7 @@ reloadAllSymbols = do
 
   -- Load all symbols from disk
   searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
-  let newSymbols = Types.mkSymbols (FP.joinPath repoRootDir) searchResult
+  let !newSymbols = force $ Types.mkSymbols (FP.joinPath repoRootDir) searchResult
 
   modifyState \appState -> do
     appState <-

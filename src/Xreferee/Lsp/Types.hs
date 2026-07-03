@@ -20,7 +20,9 @@ data Symbols = Symbols
   { anchors :: SymbolSet X.Anchor,
     references :: SymbolSet X.Reference
   }
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Generic)
+
+instance NFData Symbols
 
 instance Semigroup Symbols where
   result1 <> result2 =
@@ -41,7 +43,9 @@ data SymbolEntry symbol = SymbolEntry
   { symbol :: symbol,
     loc :: SymbolLoc
   }
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Generic)
+
+instance (NFData symbol) => NFData (SymbolEntry symbol)
 
 -- | Indices for `SymbolEntry` that we can query by.
 type SymbolIxs :: Type -> [Type]
@@ -67,24 +71,34 @@ type SymbolIxsConstraint symbol =
   )
 
 -- Newtypes for type-safe indices.
-newtype LineNum = LineNum UInt deriving stock (Show, Eq, Ord)
+newtype LineNum = LineNum UInt
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving newtype (NFData)
 
-newtype ColumnStart = ColumnStart UInt deriving stock (Show, Eq, Ord)
+newtype ColumnStart = ColumnStart UInt
+  deriving stock (Show, Eq, Ord)
+  deriving newtype (NFData)
 
-newtype ColumnEnd = ColumnEnd UInt deriving stock (Show, Eq, Ord)
+newtype ColumnEnd = ColumnEnd UInt
+  deriving stock (Show, Eq, Ord)
+  deriving newtype (NFData)
 
 data SymbolLoc = SymbolLoc
   { uri :: Lsp.Uri,
     lineNum :: UInt,
     columnRange :: ColumnRange
   }
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Generic)
+
+instance NFData SymbolLoc
 
 data ColumnRange = ColumnRange
   { start :: UInt,
     end :: UInt
   }
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show, Eq, Ord, Generic)
+
+instance NFData ColumnRange
 
 mkSymbols :: FilePath -> SearchResult -> Symbols
 mkSymbols repoRootDir sr =
