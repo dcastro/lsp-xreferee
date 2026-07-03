@@ -2,15 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## 0.0.2
 
 * Upgraded to [`xreferee v1.1.1`](https://github.com/brandonchinn178/xreferee/releases/tag/v1.1.1)
 * Added support for opening workspaces in a git repo's subdirectories.
 * Reload all anchors/references when `.gitignore` changes.
-* Performance improvement: cached `git check-ignore` results.
 * Bug fix: correctly handle all Unicode characters.
-* Bug fix: when handling `workspace/didChangeWatchedFiles`, push the new diagnostics only once, after every file event has been processed.
-* Ignore binary files
+* Performance improvements:
+  * Cached `git check-ignore` results.
+  * When handling `workspace/didChangeWatchedFiles`, push the new diagnostics only once, after every file event has been processed.
+  * Ignore binary files
 
 ## 0.0.1
 
