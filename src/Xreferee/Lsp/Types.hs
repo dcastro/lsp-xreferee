@@ -1,7 +1,7 @@
 module Xreferee.Lsp.Types where
 
 import ClassyPrelude
-import Control.Lens hiding (Indexable, Iso)
+import Control.Monad.State
 import Data.IxSet.Typed (Indexable (..), IxSet)
 import Data.IxSet.Typed qualified as Ix
 import Data.Kind (Type)
@@ -89,25 +89,57 @@ data ColumnRange = ColumnRange
 mkSymbols :: FilePath -> SearchResult -> Symbols
 mkSymbols repoRootDir sr =
   Symbols
-    { anchors = mkIxSet sr.anchors,
-      references = mkIxSet sr.references
+    { anchors,
+      references
     }
   where
-    mkIxSet :: forall symbol. (Ord symbol) => Map symbol [X.LabelLoc] -> SymbolSet symbol
-    mkIxSet map = map & Map.toList >>= (\(symbol, locs) -> mkSymbolEntry symbol locs) & Ix.fromList
+    (anchors, references) =
+      flip evalState mempty $
+        (,) <$> mkIxSet repoRootDir (sr.anchors) <*> mkIxSet repoRootDir (sr.references)
 
-    mkSymbolEntry :: forall symbol. symbol -> [X.LabelLoc] -> [SymbolEntry symbol]
-    mkSymbolEntry sym locs = locs <&> \loc -> SymbolEntry {symbol = sym, loc = mkSymbolLoc loc}
+-- | An internal cache used during `mkSymbols` to avoid repeatedly converting the same file paths to URIs.
+-- `Lsp.filePathToUri` is a relatively expensive operation.
+--
+-- The `xreferee` repo was used to stress test this.
+-- It has 19260 anchors and 15901 references across 24 files.
+-- The handler for SMethod_Initialized went from taking 4.2s to 1.6s.
+type UriCache = Map FilePath Lsp.Uri
 
-    mkSymbolLoc :: X.LabelLoc -> SymbolLoc
-    mkSymbolLoc l =
-      SymbolLoc
-        { -- The paths returned by `xrefcheck` are relative to the git repo root,
-          -- so we have to prepend the repo root to get an absolute path, which we then convert to a `file://` URI.
-          uri = Lsp.filePathToUri $ repoRootDir </> l.filepath,
-          lineNum = xToLsp l.lineNum,
-          columnRange = mkColumnRange l.columnRange
-        }
+mkIxSet :: forall symbol. FilePath -> (Ord symbol) => Map symbol [X.LabelLoc] -> State UriCache (SymbolSet symbol)
+mkIxSet repoRootDir map = do
+  entries <-
+    forM (Map.toList map) \(symbol, locs) -> do
+      mkSymbolEntry repoRootDir symbol locs
+
+  pure $ Ix.fromList (mconcat entries)
+
+mkSymbolEntry :: forall symbol. FilePath -> symbol -> [X.LabelLoc] -> State UriCache [SymbolEntry symbol]
+mkSymbolEntry repoRootDir sym locs =
+  forM locs \loc -> do
+    loc <- mkSymbolLoc repoRootDir loc
+    pure $ SymbolEntry {symbol = sym, loc}
+
+mkSymbolLoc :: FilePath -> X.LabelLoc -> State UriCache SymbolLoc
+mkSymbolLoc repoRootDir l = do
+  uri <- convertFilePathToUri repoRootDir l.filepath
+  pure
+    SymbolLoc
+      { uri,
+        lineNum = xToLsp l.lineNum,
+        columnRange = mkColumnRange l.columnRange
+      }
+
+convertFilePathToUri :: FilePath -> FilePath -> State UriCache Lsp.Uri
+convertFilePathToUri repoRootDir fp = do
+  cache <- get
+  case Map.lookup fp cache of
+    Just uri -> pure uri
+    Nothing -> do
+      -- The paths returned by `xrefcheck` are relative to the git repo root,
+      -- so we have to prepend the repo root to get an absolute path, which we then convert to a `file://` URI.
+      let uri = Lsp.filePathToUri $ repoRootDir </> fp
+      modify (Map.insert fp uri)
+      pure uri
 
 mkColumnRange :: X.ColumnRange -> ColumnRange
 mkColumnRange cr =
