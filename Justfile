@@ -6,4 +6,4 @@ default:
 filewatch:
     watchexec --clear --restart \
       --exts hs,yaml \
-      -- 'stack install --ghc-options="-O2" ; kdialog --passivepopup Done'
+      -- 'xreferee && stack install --ghc-options="-O2" ; kdialog --passivepopup Done'

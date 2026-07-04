@@ -34,7 +34,8 @@ import Xreferee.Lsp.Handlers.References (handleReferences)
 import Xreferee.Lsp.Handlers.Rename (handleRename)
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Options qualified as LspOpt
-import Xreferee.Lsp.SendDiagnostics (modifyState, sendDiagnostics)
+import Xreferee.Lsp.SendDiagnostics (modifyState, sendDiagnostics, sendDiagnostics2)
+import Xreferee.Lsp.Symbols qualified as Symbols
 import Xreferee.Lsp.Types qualified as Types
 import Xreferee.Lsp.Util qualified as Util
 
@@ -101,7 +102,7 @@ run cliOptions = flip E.catches handlers $ do
               let startupTime = t1 - t0
               startupLoggers <& ("Server initialized in: " <> tshow startupTime) `WithSeverity` L.Info
               pure (Right (env, appEnv)),
-            staticHandlers = \_caps -> mkHandlers,
+            staticHandlers = \_caps -> handlersWithDiagnostics,
             interpretHandler = \(env, appEnv) -> Iso {forward = (runAppM appEnv env), backward = liftIO},
             options = lspOptions
           }
@@ -126,7 +127,7 @@ run cliOptions = flip E.catches handlers $ do
 initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> IO AppData
 initialize appLogger _startupLogger = do
   searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
-  db <- Db.new
+  conn <- Db.new
 
   repoRootDir <- Git.getRepoRoot
   -- Front-load the evaluation of all symbols.
@@ -135,6 +136,8 @@ initialize appLogger _startupLogger = do
   -- so it's no use keeping thunks around.
   let !symbols = force $ Types.mkSymbols repoRootDir searchResult
 
+  Symbols.insertSearchResult conn repoRootDir searchResult
+
   state <-
     newMVar
       AppState
@@ -142,7 +145,7 @@ initialize appLogger _startupLogger = do
           filesWithDiagnostics = Set.empty,
           fileVersions = SM.empty,
           shouldHandleFiles = SM.empty,
-          db
+          conn
         }
   pure
     AppData
@@ -176,9 +179,24 @@ lspOptions =
 
 -- ---------------------------------------------------------------------
 
+-- | After each handler runs, check if there are diagnostics to send to the client, and send them if so.
+handlersWithDiagnostics :: Handlers AppM
+handlersWithDiagnostics =
+  handlers & mapHandlers goReq goNot
+  where
+    goReq :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Request). Handler AppM a -> Handler AppM a
+    goReq handler = \msg responder -> do
+      handler msg responder
+      sendDiagnostics2
+
+    goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler AppM a -> Handler AppM a
+    goNot handler = \msg -> do
+      handler msg
+      sendDiagnostics2
+
 -- | Where the actual logic resides for handling requests and notifications.
-mkHandlers :: Handlers AppM
-mkHandlers =
+handlers :: Handlers AppM
+handlers =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ Util.timedNot \_msg -> do
         FileWatchers.watchRepoFiles

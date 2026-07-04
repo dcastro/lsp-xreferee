@@ -68,7 +68,6 @@ library:
     - directory
     - pretty-simple
     - text-rope
-    - unliftio
     - filepath
     - optparse-applicative
     - ixset-typed

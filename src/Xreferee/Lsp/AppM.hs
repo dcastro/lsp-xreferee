@@ -10,7 +10,6 @@ import Data.Map.Strict qualified as SM
 import Database.SQLite.Simple (Connection)
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
-import UnliftIO qualified as Unlift
 import Xreferee.Lsp.TH (classyIdRules)
 import Xreferee.Lsp.Types (Symbols)
 
@@ -74,7 +73,7 @@ getLogger AppEnv {logger} = logger
 
 data AppState = AppState
   { symbols :: Symbols,
-    db :: MVar Connection,
+    conn :: Connection,
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set Uri,
     fileVersions :: SM.Map Uri Int32,
@@ -112,4 +111,4 @@ getState = do
 modifyStateWithoutDiagnostics :: (AppState -> AppM (AppState, a)) -> AppM a
 modifyStateWithoutDiagnostics act = do
   env <- ask
-  Unlift.modifyMVar env.state act
+  modifyMVar env.state act

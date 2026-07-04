@@ -4,7 +4,6 @@
 module Xreferee.Lsp.Db where
 
 import ClassyPrelude
-import Control.Concurrent.MVar qualified as MVar
 import Control.Lens
 import Data.Text qualified as T
 import Database.SQLite.Simple
@@ -23,8 +22,9 @@ data Symbol = Symbol
     columnStart :: LSP.UInt,
     columnEnd :: LSP.UInt
   }
+  deriving stock (Show, Eq)
 
-newtype LineNum = LineNum LSP.UInt
+newtype LineNum = LineNum {getLineNum :: LSP.UInt}
   deriving newtype (Show, Eq, Ord, NFData, ToField, FromField)
 
 instance ToRow Symbol where
@@ -36,7 +36,7 @@ instance ToRow Symbol where
       toField columnEnd
     ]
 
-new :: (MonadIO m) => m (MVar Connection)
+new :: (MonadIO m) => m Connection
 new = liftIO do
   conn <- open ":memory:"
   execute_
@@ -82,7 +82,7 @@ new = liftIO do
   execute_ conn [sql| CREATE INDEX idx_references_uri ON references (uri) |]
   execute_ conn [sql| CREATE INDEX idx_references_line ON references (line) |]
 
-  MVar.newMVar conn
+  pure conn
 
 insertAnchor :: (MonadIO m) => Connection -> Symbol -> m ()
 insertAnchor conn anchor = liftIO do
@@ -97,6 +97,14 @@ insertReference conn reference = liftIO do
     conn
     [sql|INSERT INTO references (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
     (reference)
+
+deleteSymbolsExcept :: (MonadIO m) => Connection -> [LSP.Uri] -> m ()
+deleteSymbolsExcept conn uris = liftIO do
+  let placeholders = T.intercalate "," (replicate (length uris) "?")
+  let query = "DELETE FROM anchors WHERE uri NOT IN (" <> placeholders <> ")"
+  execute conn (Query query) uris
+  let queryRefs = "DELETE FROM references WHERE uri NOT IN (" <> placeholders <> ")"
+  execute conn (Query queryRefs) uris
 
 -- findSymbolAtPosition :: (MonadIO m) => Connection -> LSP.Uri -> LSP.Position -> m (Maybe Symbol)
 -- findSymbolAtPosition conn uri lspPos = liftIO do
@@ -201,6 +209,7 @@ findUnusedAnchors conn = liftIO do
       SELECT name, uri, line, column_start, column_end
       FROM anchors
       WHERE name NOT IN (SELECT name FROM references)
+      ORDER BY name
     |]
 
 findBrokenReferences :: (MonadIO m) => Connection -> m [Symbol]
@@ -211,16 +220,19 @@ findBrokenReferences conn = liftIO do
       SELECT name, uri, line, column_start, column_end
       FROM references
       WHERE name NOT IN (SELECT name FROM anchors)
+      ORDER BY name
     |]
 
 findDuplicateAnchors :: (MonadIO m) => Connection -> m [Symbol]
 findDuplicateAnchors conn = liftIO do
   query_ @Symbol
     conn
+    -- #(ref:duplicate-anchors-sorted)
     [sql|
       SELECT name, uri, line, column_start, column_end
       FROM anchors
       WHERE name IN (SELECT name FROM anchors GROUP BY name HAVING COUNT(*) > 1)
+      ORDER BY name
     |]
 
 deleteSymbolsInLineRange :: (MonadIO m) => Connection -> LSP.Uri -> LineNum -> LineNum -> m ()

@@ -22,9 +22,10 @@ import System.FilePath qualified as FP
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Db (LineNum (..), Symbol (..))
 import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Log qualified as Log
-import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
+import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
 -- The options we use to search for symbols using the `xreferee` package.
@@ -147,6 +148,28 @@ symbolLocToLspLocation loc =
       _range = symbolLocToLspRange loc
     }
 
+symbolLocToLspRange2 :: Symbol -> LSP.Range
+symbolLocToLspRange2 sym =
+  LSP.Range
+    { _start =
+        LSP.Position
+          { _line = sym.line.getLineNum,
+            _character = sym.columnStart
+          },
+      _end =
+        LSP.Position
+          { _line = sym.line.getLineNum,
+            _character = sym.columnEnd + 1
+          }
+    }
+
+symbolLocToLspLocation2 :: Symbol -> LSP.Location
+symbolLocToLspLocation2 sym =
+  LSP.Location
+    { _uri = sym.uri,
+      _range = symbolLocToLspRange2 sym
+    }
+
 findSymbolAtPosition :: (SymbolIxsConstraint symbol) => Uri -> LSP.Position -> SymbolSet symbol -> Maybe (SymbolEntry symbol)
 findSymbolAtPosition reqUri reqPos symbols =
   let reqLine = reqPos ^. LSP.line
@@ -154,7 +177,7 @@ findSymbolAtPosition reqUri reqPos symbols =
    in Ix.getOne $
         symbols
           @= reqUri
-          @= LineNum reqLine
+          @= Types.LineNum reqLine
           @<= ColumnStart reqColumn
           @>= ColumnEnd reqColumn
 

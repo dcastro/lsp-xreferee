@@ -42,6 +42,7 @@ library
       Xreferee.Lsp.Log
       Xreferee.Lsp.Options
       Xreferee.Lsp.SendDiagnostics
+      Xreferee.Lsp.Symbols
       Xreferee.Lsp.TH
       Xreferee.Lsp.Types
       Xreferee.Lsp.Util
@@ -87,7 +88,6 @@ library
     , text
     , text-rope
     , time
-    , unliftio
     , xreferee
   default-language: Haskell2010
 
