@@ -98,7 +98,7 @@ run cliOptions = flip E.catches handlers $ do
               appEnv <- initialize appLoggers startupLoggers
               t1 <- Time.getPOSIXTime
               let startupTime = t1 - t0
-              startupLoggers <& ("Server initialized in " <> tshow startupTime) `WithSeverity` L.Info
+              startupLoggers <& ("Server initialized in: " <> tshow startupTime) `WithSeverity` L.Info
               pure (Right (env, appEnv)),
             staticHandlers = \_caps -> mkHandlers,
             interpretHandler = \(env, appEnv) -> Iso {forward = (runAppM appEnv env), backward = liftIO},
