@@ -146,7 +146,8 @@ initialize appLogger _startupLogger = do
       { env =
           AppEnv
             { logger = appLogger,
-              repoRootDir = FP.splitDirectories repoRootDir
+              repoRootDir = FP.splitDirectories repoRootDir,
+              logPayloads = False
             },
         state
       }
