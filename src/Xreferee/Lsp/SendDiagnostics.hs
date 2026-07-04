@@ -38,86 +38,90 @@ sendDiagnostics2 :: AppM ()
 sendDiagnostics2 = do
   st <- view state
   modifyMVar_ st \appState -> do
-    unusedAnchors <- Db.findUnusedAnchors appState.conn
-    brokenRefs <- Db.findBrokenReferences appState.conn
-    duplicateAnchors <- Db.findDuplicateAnchors appState.conn
+    -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
+    if not appState.isDbDirty
+      then pure appState
+      else do
+        unusedAnchors <- Db.findUnusedAnchors appState.conn
+        brokenRefs <- Db.findBrokenReferences appState.conn
+        duplicateAnchors <- Db.findDuplicateAnchors appState.conn
 
-    let unusedAnchorsDiagnostics = do
-          anchor <- unusedAnchors
-          -- entry <- Set.toList entries
-          pure
-            ( anchor.uri,
-              [ LSP.Diagnostic
-                  { _range = Util.symbolLocToLspRange2 anchor,
-                    _severity = Just LSP.DiagnosticSeverity_Warning,
-                    _code = Nothing,
-                    _codeDescription = Nothing,
-                    _source = diagnosticsSource,
-                    _message = "Unused anchor: '" <> anchor.name <> "'",
-                    _tags = Just ([LSP.DiagnosticTag_Unnecessary]),
-                    _relatedInformation = Nothing,
-                    _data_ = Nothing
-                  }
-              ]
-            )
+        let unusedAnchorsDiagnostics = do
+              anchor <- unusedAnchors
+              -- entry <- Set.toList entries
+              pure
+                ( anchor.uri,
+                  [ LSP.Diagnostic
+                      { _range = Util.symbolLocToLspRange2 anchor,
+                        _severity = Just LSP.DiagnosticSeverity_Warning,
+                        _code = Nothing,
+                        _codeDescription = Nothing,
+                        _source = diagnosticsSource,
+                        _message = "Unused anchor: '" <> anchor.name <> "'",
+                        _tags = Just ([LSP.DiagnosticTag_Unnecessary]),
+                        _relatedInformation = Nothing,
+                        _data_ = Nothing
+                      }
+                  ]
+                )
 
-    let brokenRefsDiagnostics = do
-          ref <- brokenRefs
-          pure
-            ( ref.uri,
-              [ LSP.Diagnostic
-                  { _range = Util.symbolLocToLspRange2 ref,
-                    _severity = Just LSP.DiagnosticSeverity_Error,
-                    _code = Nothing,
-                    _codeDescription = Nothing,
-                    _source = diagnosticsSource,
-                    _message = "Broken reference: '" <> ref.name <> "'",
-                    _tags = Nothing,
-                    _relatedInformation = Nothing,
-                    _data_ = Nothing
-                  }
-              ]
-            )
+        let brokenRefsDiagnostics = do
+              ref <- brokenRefs
+              pure
+                ( ref.uri,
+                  [ LSP.Diagnostic
+                      { _range = Util.symbolLocToLspRange2 ref,
+                        _severity = Just LSP.DiagnosticSeverity_Error,
+                        _code = Nothing,
+                        _codeDescription = Nothing,
+                        _source = diagnosticsSource,
+                        _message = "Broken reference: '" <> ref.name <> "'",
+                        _tags = Nothing,
+                        _relatedInformation = Nothing,
+                        _data_ = Nothing
+                      }
+                  ]
+                )
 
-    let duplicateAnchorsDiagnostics = do
-          -- This `List.groupBy` relies on the db query returning anchors sorted by name
-          -- @(ref:duplicate-anchors-sorted)
-          anchors <- List.groupBy (\a b -> a.name == b.name) duplicateAnchors
-          anchor <- anchors
-          let otherAnchors = filter (/= anchor) anchors
-          pure
-            ( anchor.uri,
-              [ LSP.Diagnostic
-                  { _range = Util.symbolLocToLspRange2 anchor,
-                    _severity = Just LSP.DiagnosticSeverity_Error,
-                    _code = Nothing,
-                    _codeDescription = Nothing,
-                    _source = diagnosticsSource,
-                    _message = "Duplicate anchor: '" <> anchor.name <> "'",
-                    _tags = Nothing,
-                    _relatedInformation =
-                      Just $
-                        otherAnchors <&> \otherAnchor ->
-                          LSP.DiagnosticRelatedInformation
-                            { _location = Util.symbolLocToLspLocation2 otherAnchor,
-                              _message = "Duplicate definition."
-                            },
-                    _data_ = Nothing
-                  }
-              ]
-            )
-    -- Publish all diagnostics
-    let allDiagnosticsByFile = Map.fromListWith (<>) $ unusedAnchorsDiagnostics <> brokenRefsDiagnostics <> duplicateAnchorsDiagnostics
-    forM_ (Map.toList allDiagnosticsByFile) $ \(uri, diagnostics) -> do
-      publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (partitionBySource diagnostics)
+        let duplicateAnchorsDiagnostics = do
+              -- This `List.groupBy` relies on the db query returning anchors sorted by name
+              -- @(ref:duplicate-anchors-sorted)
+              anchors <- List.groupBy (\a b -> a.name == b.name) duplicateAnchors
+              anchor <- anchors
+              let otherAnchors = filter (/= anchor) anchors
+              pure
+                ( anchor.uri,
+                  [ LSP.Diagnostic
+                      { _range = Util.symbolLocToLspRange2 anchor,
+                        _severity = Just LSP.DiagnosticSeverity_Error,
+                        _code = Nothing,
+                        _codeDescription = Nothing,
+                        _source = diagnosticsSource,
+                        _message = "Duplicate anchor: '" <> anchor.name <> "'",
+                        _tags = Nothing,
+                        _relatedInformation =
+                          Just $
+                            otherAnchors <&> \otherAnchor ->
+                              LSP.DiagnosticRelatedInformation
+                                { _location = Util.symbolLocToLspLocation2 otherAnchor,
+                                  _message = "Duplicate definition."
+                                },
+                        _data_ = Nothing
+                      }
+                  ]
+                )
+        -- Publish all diagnostics
+        let allDiagnosticsByFile = Map.fromListWith (<>) $ unusedAnchorsDiagnostics <> brokenRefsDiagnostics <> duplicateAnchorsDiagnostics
+        forM_ (Map.toList allDiagnosticsByFile) $ \(uri, diagnostics) -> do
+          publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (partitionBySource diagnostics)
 
-    -- Clear diagnostics for files that had diagnostics before but don't have any now.
-    let filesWithDiagnosticsNow = Map.keysSet allDiagnosticsByFile
-    let filesWithDiagnosticsBefore = appState.filesWithDiagnostics
-    forM_ (Set.difference filesWithDiagnosticsBefore filesWithDiagnosticsNow) \uri -> do
-      publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (Map.singleton diagnosticsSource mempty)
+        -- Clear diagnostics for files that had diagnostics before but don't have any now.
+        let filesWithDiagnosticsNow = Map.keysSet allDiagnosticsByFile
+        let filesWithDiagnosticsBefore = appState.filesWithDiagnostics
+        forM_ (Set.difference filesWithDiagnosticsBefore filesWithDiagnosticsNow) \uri -> do
+          publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (Map.singleton diagnosticsSource mempty)
 
-    pure appState {filesWithDiagnostics = filesWithDiagnosticsNow}
+        pure appState {filesWithDiagnostics = filesWithDiagnosticsNow}
 
 -- | Analyze the file and send any diagnostics to the client in a
 -- "textDocument/publishDiagnostics" notification

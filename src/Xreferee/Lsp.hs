@@ -145,7 +145,8 @@ initialize appLogger _startupLogger = do
           filesWithDiagnostics = Set.empty,
           fileVersions = SM.empty,
           shouldHandleFiles = SM.empty,
-          conn
+          conn,
+          isDbDirty = True
         }
   pure
     AppData

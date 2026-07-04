@@ -46,7 +46,8 @@ reloadAllSymbols = do
             -- Changes done to `.gitignore` invalidate the `shouldHandleFiles` cache
             shouldHandleFiles = mempty,
             filesWithDiagnostics = appState.filesWithDiagnostics,
-            conn = appState.conn
+            conn = appState.conn,
+            isDbDirty = True
           }
 
     flip execStateT appState $ overlayOpenFiles

@@ -74,6 +74,8 @@ getLogger AppEnv {logger} = logger
 data AppState = AppState
   { symbols :: Symbols,
     conn :: Connection,
+    -- | True if the symbols database has been modified since the last time diagnostics were sent to the client.
+    isDbDirty :: Bool,
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set Uri,
     fileVersions :: SM.Map Uri Int32,
