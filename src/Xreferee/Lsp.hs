@@ -23,6 +23,7 @@ import System.Exit
 import System.FilePath qualified as FP
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.FileWatchers qualified as FileWatchers
 import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Handlers.Definition (handleDefinition)
@@ -125,6 +126,7 @@ run cliOptions = flip E.catches handlers $ do
 initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> IO AppData
 initialize appLogger _startupLogger = do
   searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
+  db <- Db.new
 
   repoRootDir <- Git.getRepoRoot
   -- Front-load the evaluation of all symbols.
@@ -139,7 +141,8 @@ initialize appLogger _startupLogger = do
         { symbols,
           filesWithDiagnostics = Set.empty,
           fileVersions = SM.empty,
-          shouldHandleFiles = SM.empty
+          shouldHandleFiles = SM.empty,
+          db
         }
   pure
     AppData

@@ -36,8 +36,8 @@ instance ToRow Symbol where
       toField columnEnd
     ]
 
-init :: (MonadIO m) => m (MVar Connection)
-init = liftIO do
+new :: (MonadIO m) => m (MVar Connection)
+new = liftIO do
   conn <- open ":memory:"
   execute_
     conn

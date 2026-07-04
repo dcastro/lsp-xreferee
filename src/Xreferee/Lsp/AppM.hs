@@ -7,6 +7,7 @@ import Colog.Core (LogAction (..), WithSeverity (..))
 import Control.Lens
 import Data.Aeson qualified as J
 import Data.Map.Strict qualified as SM
+import Database.SQLite.Simple (Connection)
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
 import UnliftIO qualified as Unlift
@@ -73,13 +74,13 @@ getLogger AppEnv {logger} = logger
 
 data AppState = AppState
   { symbols :: Symbols,
+    db :: MVar Connection,
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set Uri,
     fileVersions :: SM.Map Uri Int32,
     -- | Keep track of which files are ignored, see @(ref:shouldHandleFile)
     shouldHandleFiles :: SM.Map Uri Bool
   }
-  deriving stock (Show)
 
 ----------------------------------------------------------------------------
 -- Lenses
