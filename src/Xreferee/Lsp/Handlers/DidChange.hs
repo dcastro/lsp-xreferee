@@ -24,10 +24,10 @@ import Xreferee.Lsp.Types qualified as Types
 
 handleDidChange :: Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange = \req -> do
-  Log.logNot req
+  lift $ Log.logNot req
 
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
-  vf <- Maybe.fromJust <$> LSP.getVirtualFile (LSP.toNormalizedUri uri)
+  vf <- Maybe.fromJust <$> lift (LSP.getVirtualFile (LSP.toNormalizedUri uri))
   let rope = vf ^. VFS.file_text
 
   let diffs = req ^. LSP.params . LSP.contentChanges

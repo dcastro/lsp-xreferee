@@ -101,11 +101,11 @@ run cliOptions = flip E.catches handlers $ do
               startupLoggers <& ("Server initialized in " <> tshow startupTime) `WithSeverity` L.Info
               pure (Right (env, appEnv)),
             staticHandlers = \_caps -> mkHandlers,
-            interpretHandler = \(env, (AppData appEnv appState)) ->
+            interpretHandler = \(env, AppData appEnv) ->
               Iso
                 { forward = \app -> do
                     -- Acquire the `MVar AppState`, run the handler in `StateT AppState`, and release the MVar.
-                    modifyMVar appState \appState -> do
+                    modifyMVar appEnv.stateVar \appState -> do
                       (a, appState) <- runAppM appState appEnv env app
                       pure (appState, a),
                   backward = liftIO
@@ -155,9 +155,9 @@ initialize appLogger _startupLogger = do
           AppEnv
             { logger = appLogger,
               repoRootDir = FP.splitDirectories repoRootDir,
-              logPayloads = False
-            },
-        state
+              logPayloads = False,
+              stateVar = state
+            }
       }
 
 -- ---------------------------------------------------------------------

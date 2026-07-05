@@ -22,11 +22,11 @@ import Xreferee.Lsp.Util qualified as Util
 -- (e.g. when the user switches git branches, or the user deletes a file via the file manager).
 handleDidChangeWatchedFiles :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeWatchedFiles = \req -> do
-  Log.logNot req
+  lift $ Log.logNot req
   modifyState \appState0 -> do
     let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
 
-    flip execStateT appState0 $ runHandler fileEvents
+    lift $ flip execStateT appState0 $ runHandler fileEvents
   where
     -- When creating a folder, sometimes we might get a "created" event for the folder,
     -- and sometimes we might get "created" events for the folder AND every file within the folder.

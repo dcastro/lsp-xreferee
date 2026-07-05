@@ -13,9 +13,16 @@ import Language.LSP.Server as LSP
 import Xreferee.Lsp.TH (classyIdRules)
 import Xreferee.Lsp.Types (Symbols)
 
-type AppM' = (ReaderT AppData (LspM Config))
+-- | The "escape hatch" out of `AppM`'s `StateT` layer.
+--
+-- `AppM = StateT AppState AppM'`, so `AppM'` is exactly `AppM`'s base monad. Anything that
+-- needs `MonadLsp` (e.g. `registerCapability`) can't run directly in `AppM`, because
+-- `MonadLsp` implies `MonadUnliftIO`, which `StateT` can't provide. Such code should be
+-- written against `AppM'` (or, more generally, `(MonadReader r m, HasAppEnv r, MonadLsp
+-- config m) => m`) and lifted into `AppM` with `lift`.
+type AppM' = ReaderT AppEnv (LspM Config)
 
-type AppM = StateT AppState (ReaderT AppEnv (LspM Config))
+type AppM = StateT AppState AppM'
 
 type AppLogger = forall m config. (MonadLsp config m) => LogAction m (WithSeverity Text)
 
@@ -38,10 +45,11 @@ data Config = Config {}
 -- AppData
 ----------------------------------------------------------------------------
 
--- | AppData = AppState + AppEnv
-data AppData = AppData
-  { env :: AppEnv,
-    state :: MVar AppState
+-- | The per-session data the `lsp` library hands back to `interpretHandler` on every request.
+--
+-- `AppState` is reachable via `env.stateVar`, so there's no need for a separate field here.
+newtype AppData = AppData
+  { env :: AppEnv
   }
 
 ----------------------------------------------------------------------------
@@ -55,7 +63,13 @@ data AppEnv = AppEnv
     -- | Whether to log the payloads of LSP requests / notifications
     -- (at the debug level, to the logfile, if one is supplied).
     -- Can be very verbose e.g. when a large file is opened.
-    logPayloads :: Bool
+    logPayloads :: Bool,
+    -- | Handle to the same `MVar` that guards `AppState` across requests (see
+    -- `interpretHandler` in "Xreferee.Lsp"). Only needed for out-of-band access to
+    -- `AppState`, from code that runs outside of the normal per-request `StateT`
+    -- threading (e.g. a dynamically-registered LSP capability handler, which is invoked
+    -- later by the `lsp` library, not nested within the `AppM` computation that registered it).
+    stateVar :: MVar AppState
   }
 
 -- `logger` is a polymorphic field, and GHC does not resolve
@@ -96,9 +110,3 @@ mconcat
 
 instance HasAppEnv AppData where
   appEnv = env
-
--- -- NOTE: We can't define `HasAppState AppData` because `AppState` is gated behind an `MVar`.
--- getState :: AppM AppState
--- getState = do
---   appData <- ask
---   liftIO $ readMVar appData.state

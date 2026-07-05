@@ -18,6 +18,9 @@ import Xreferee.Lsp.Util qualified as Util
 watchRepoFiles :: AppM ()
 watchRepoFiles = do
   repoRootDir <- view repoRootDir
+  appEnv <- view appEnv
+  appLogger <- view logger
+  lspEnv <- lift LSP.getLspEnv
 
   let watcher = mkFileWatcher repoRootDir "**/*"
 
@@ -25,26 +28,37 @@ watchRepoFiles = do
   -- the `lsp` library keys dynamic registrations by method, so registering twice for the
   -- same method overwrites the first handler. Instead, we register a single handler that
   -- dispatches to the right internal handler.
-  let handler = dispatcher
+  let handlerAppM = Util.timedNot dispatcher
 
-  appLogger <- view logger
-  let coreLogger = undefined --  L.cmap (fmap (tshow . pretty)) appLogger
+  -- `registerCapability` requires `MonadLsp`, which `AppM`'s `StateT` layer can't provide.
+  -- We call it in `AppM'` instead (via `lift`), and bridge the registered handler back into
+  -- `AppM` the same way `interpretHandler` does: acquire the state MVar, run the `StateT`
+  -- computation, release the MVar. This is necessary (rather than e.g. just `lift`ing the
+  -- handler) because the handler is invoked later, out-of-band, by the `lsp` library's
+  -- dispatch machinery -- not nested within this `AppM` computation.
+  let handler req =
+        liftIO $ modifyMVar appEnv.stateVar \appState -> do
+          (a, appState') <- runAppM appState appEnv lspEnv (handlerAppM req)
+          pure (appState', a)
+
+  let coreLogger = L.cmap (fmap (tshow . pretty)) appLogger
   let registrationOptions =
         LSP.DidChangeWatchedFilesRegistrationOptions
           { _watchers = [watcher]
           }
   result <-
-    LSP.registerCapability
-      coreLogger
-      LSP.SMethod_WorkspaceDidChangeWatchedFiles
-      registrationOptions
-      (Util.timedNot handler)
+    lift $
+      LSP.registerCapability
+        coreLogger
+        LSP.SMethod_WorkspaceDidChangeWatchedFiles
+        registrationOptions
+        handler
 
   case result of
     Nothing ->
-      Log.err "Failed to register workspace/didChangeWatchedFiles watcher."
+      lift $ Log.err "Failed to register workspace/didChangeWatchedFiles watcher."
     Just _token ->
-      Log.info "Registered workspace/didChangeWatchedFiles watcher."
+      lift $ Log.info "Registered workspace/didChangeWatchedFiles watcher."
 
 -- | Dispatch a `workspace/didChangeWatchedFiles` notification to the appropriate handler.
 --

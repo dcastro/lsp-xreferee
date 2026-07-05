@@ -21,8 +21,8 @@ import Xreferee.Lsp.Util qualified as Util
 -- When any `.gitignore` file changes in the repo, we need to rebuild the symbol index for all files in the repo.
 handleDidChangeGitIgnore :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeGitIgnore = \req -> do
-  Log.logNot req
-  Log.debug ".gitignore changed, reloading all symbols"
+  lift $ Log.logNot req
+  lift $ Log.debug ".gitignore changed, reloading all symbols"
   reloadAllSymbols
 
 reloadAllSymbols :: AppM ()
@@ -48,7 +48,7 @@ reloadAllSymbols = do
             filesWithDiagnostics = appState.filesWithDiagnostics
           }
 
-    flip execStateT appState $ overlayOpenFiles
+    lift $ flip execStateT appState $ overlayOpenFiles
 
 -- | For files that are currently open in the editor, we want to keep their symbols in the index,
 -- because they might have unsaved changes.
