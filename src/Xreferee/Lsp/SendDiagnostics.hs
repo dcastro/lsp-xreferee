@@ -14,6 +14,7 @@ import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
+import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Types (SymbolEntry (..), SymbolLoc (..), Symbols (..))
 import Xreferee.Lsp.Util qualified as Util
 
@@ -40,8 +41,11 @@ sendDiagnostics2 = do
   appState <- getState
   -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
   if not appState.isDbDirty
-    then pure ()
+    then do
+      Log.debug "sendDiagnostics: skip"
+      pure ()
     else do
+      Log.debug "sendDiagnostics: computing"
       unusedAnchors <- Db.findUnusedAnchors conn
       brokenRefs <- Db.findBrokenReferences conn
       duplicateAnchors <- Db.findDuplicateAnchors conn

@@ -6,6 +6,7 @@ import Data.Map qualified as Map
 import Database.SQLite.Simple (Connection)
 import Language.LSP.Protocol.Types qualified as LSP
 import XReferee.SearchResult qualified as X
+import Xreferee.Lsp.AppM (AppM)
 import Xreferee.Lsp.Db (LineNum (..))
 import Xreferee.Lsp.Db qualified as Db
 
@@ -17,7 +18,7 @@ import Xreferee.Lsp.Db qualified as Db
 -- The handler for SMethod_Initialized went from taking 4.2s to 1.6s.
 type UriCache = Map FilePath LSP.Uri
 
-insertSearchResult :: (MonadIO m) => Connection -> FilePath -> X.SearchResult -> m ()
+insertSearchResult :: Connection -> FilePath -> X.SearchResult -> AppM ()
 insertSearchResult conn repoRootDir searchResult = do
   flip evalStateT mempty do
     forM_ (Map.toList searchResult.anchors) \(anchor, locs) -> do
@@ -32,7 +33,7 @@ insertSearchResult conn repoRootDir searchResult = do
                   columnStart = xToLsp loc.columnRange.start,
                   columnEnd = xToLsp loc.columnRange.end
                 }
-        Db.insertAnchor conn symbol
+        lift $ Db.insertAnchor conn symbol
   where
     convertFilePathToUri :: (Monad m) => FilePath -> FilePath -> StateT UriCache m LSP.Uri
     convertFilePathToUri repoRootDir fp = do

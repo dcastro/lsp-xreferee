@@ -50,7 +50,7 @@ main = do
         c -> exitWith . ExitFailure $ c
 
 run :: LspOpt.CliOptions -> IO Int
-run cliOptions = flip E.catches handlers $ do
+run cliOptions = flip E.catches handlers do
   t0 <- Time.getPOSIXTime
   maybeLogFileHandle <- forM cliOptions.logFilePath \logFilePath -> do
     logFileHandle <- openFile logFilePath AppendMode
@@ -97,7 +97,7 @@ run cliOptions = flip E.catches handlers $ do
             onConfigChange = const $ pure (),
             configSection = "lsp-xreferee",
             doInitialize = \env _initializeMsg -> do
-              appEnv <- initialize appLoggers startupLoggers
+              appEnv <- initialize appLoggers startupLoggers env
               t1 <- Time.getPOSIXTime
               let startupTime = t1 - t0
               startupLoggers <& ("Server initialized in: " <> tshow startupTime) `WithSeverity` L.Info
@@ -124,8 +124,8 @@ run cliOptions = flip E.catches handlers $ do
     ioExcept (e :: E.IOException) = print e >> return 1
     someExcept (e :: E.SomeException) = print e >> return 1
 
-initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> IO AppData
-initialize appLogger _startupLogger = do
+initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> LanguageContextEnv Config -> IO AppData
+initialize appLogger _startupLogger env = do
   searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
   conn <- Db.new
 
@@ -136,8 +136,6 @@ initialize appLogger _startupLogger = do
   -- so it's no use keeping thunks around.
   let !symbols = force $ Types.mkSymbols repoRootDir searchResult
 
-  Symbols.insertSearchResult conn repoRootDir searchResult
-
   state <-
     newMVar
       AppState
@@ -147,17 +145,22 @@ initialize appLogger _startupLogger = do
           shouldHandleFiles = SM.empty,
           isDbDirty = True
         }
-  pure
-    AppData
-      { env =
-          AppEnv
-            { logger = appLogger,
-              repoRootDir = FP.splitDirectories repoRootDir,
-              logPayloads = False,
-              conn
-            },
-        state
-      }
+  let appData =
+        AppData
+          { env =
+              AppEnv
+                { logger = appLogger,
+                  repoRootDir = FP.splitDirectories repoRootDir,
+                  logPayloads = False,
+                  conn
+                },
+            state
+          }
+
+  runAppM appData env do
+    Symbols.insertSearchResult conn repoRootDir searchResult
+
+  pure appData
 
 -- ---------------------------------------------------------------------
 

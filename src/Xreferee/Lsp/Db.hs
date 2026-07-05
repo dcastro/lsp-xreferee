@@ -72,19 +72,23 @@ new = liftIO do
 
   pure conn
 
-insertAnchor :: (MonadIO m) => Connection -> Symbol -> m ()
-insertAnchor conn anchor = liftIO do
-  execute
-    conn
-    [sql|INSERT INTO anchors (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
-    (anchor)
+insertAnchor :: Connection -> Symbol -> AppM ()
+insertAnchor conn anchor = do
+  liftIO $
+    execute
+      conn
+      [sql|INSERT INTO anchors (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
+      (anchor)
+  setDirty
 
-insertReference :: (MonadIO m) => Connection -> Symbol -> m ()
-insertReference conn reference = liftIO do
-  execute
-    conn
-    [sql|INSERT INTO refs (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
-    (reference)
+insertReference :: Connection -> Symbol -> AppM ()
+insertReference conn reference = do
+  liftIO $
+    execute
+      conn
+      [sql|INSERT INTO refs (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
+      (reference)
+  setDirty
 
 deleteSymbolsExcept :: (MonadIO m) => Connection -> [LSP.Uri] -> m ()
 deleteSymbolsExcept conn uris = liftIO do
@@ -172,10 +176,12 @@ findReferenceAtPosition conn uri lspPos = liftIO do
     |]
       (uri, reqLine, reqColumn)
 
-deleteSymbolsForFile :: (MonadIO m) => Connection -> LSP.Uri -> m ()
-deleteSymbolsForFile conn uri = liftIO do
-  execute conn [sql|DELETE FROM anchors WHERE uri = ?|] (Only uri)
-  execute conn [sql|DELETE FROM refs WHERE uri = ?|] (Only uri)
+deleteSymbolsForFile :: Connection -> LSP.Uri -> AppM ()
+deleteSymbolsForFile conn uri = do
+  liftIO $ execute conn [sql|DELETE FROM anchors WHERE uri = ?|] (Only uri)
+  checkDirty conn
+  liftIO $ execute conn [sql|DELETE FROM refs WHERE uri = ?|] (Only uri)
+  checkDirty conn
 
 deleteSymbolsForFileOrDirectory :: (MonadIO m) => Connection -> LSP.Uri -> m ()
 deleteSymbolsForFileOrDirectory conn uri = liftIO do
@@ -255,3 +261,17 @@ instance FromField LSP.UInt where
 
 instance FromRow Symbol where
   fromRow = Symbol <$> field <*> field <*> field <*> field <*> field
+
+----------------------------------------------------------------------------
+-- Utils
+----------------------------------------------------------------------------
+
+checkDirty :: Connection -> AppM ()
+checkDirty conn = do
+  affectedRows <- liftIO $ changes conn
+  when (affectedRows > 0) do
+    setDirty
+
+setDirty :: AppM ()
+setDirty = do
+  modifyState2 \appState -> appState {isDbDirty = True}

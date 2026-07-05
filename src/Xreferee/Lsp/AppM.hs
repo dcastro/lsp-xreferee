@@ -100,12 +100,17 @@ instance HasAppEnv AppData where
 getState :: AppM AppState
 getState = do
   appData <- ask
-  liftIO $ readMVar appData.state
+  readMVar appData.state
 
 putState :: AppState -> AppM ()
 putState newState = do
   appData <- ask
-  liftIO $ modifyMVar_ appData.state \_ -> pure newState
+  modifyMVar_ appData.state \_ -> pure newState
+
+modifyState2 :: (AppState -> AppState) -> AppM ()
+modifyState2 f = do
+  appData <- ask
+  modifyMVar_ appData.state \appState -> pure (f appState)
 
 ----------------------------------------------------------------------------
 -- Utils

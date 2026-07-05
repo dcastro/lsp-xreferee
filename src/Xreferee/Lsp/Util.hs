@@ -23,8 +23,10 @@ import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db (LineNum (..), Symbol (..))
+import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Log qualified as Log
+import Xreferee.Lsp.Symbols qualified as Symbols
 import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
 import Xreferee.Lsp.Types qualified as Types
 
@@ -77,6 +79,39 @@ isWithinDir file dir =
     addTrailingPathSeparator :: Text -> Text
     addTrailingPathSeparator =
       T.pack . FP.addTrailingPathSeparator . T.unpack
+
+-- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
+loadSymbolsForFile2 :: Uri -> LByteString -> Int32 -> AppM ()
+loadSymbolsForFile2 uri contents fileVersion = do
+  conn <- view conn
+
+  -- Delete the old symbols for this file.
+  Db.deleteSymbolsForFile conn uri
+
+  -- Parse the new symbols for this file.
+  forM_ (LBS.lines contents `zip` [0 ..]) \(line, lineNum) -> do
+    let (anchors, refs) = X.parseLabels X.defaultDelims line
+
+    let mkSymbol :: forall symbol. (X.Label symbol) => symbol -> X.ColumnRange -> Symbol
+        mkSymbol sym columnRange =
+          Db.Symbol
+            { name = X.getLabel sym,
+              uri,
+              line = LineNum lineNum,
+              columnStart = Symbols.xToLsp columnRange.start,
+              columnEnd = Symbols.xToLsp columnRange.end
+            }
+
+    forM_ anchors \(anchor, columnRange) -> do
+      let symbol = mkSymbol anchor columnRange
+      Db.insertAnchor conn symbol
+
+    forM_ refs \(ref, columnRange) -> do
+      let symbol = mkSymbol ref columnRange
+      Db.insertReference conn symbol
+
+  -- Update the version we have for this file.
+  modifyState2 \appState1 -> appState1 {fileVersions = SM.insert uri fileVersion appState1.fileVersions}
 
 -- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
 loadSymbolsForFile :: Uri -> LByteString -> Int32 -> AppState -> AppState
