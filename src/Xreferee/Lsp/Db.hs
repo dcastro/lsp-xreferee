@@ -48,39 +48,27 @@ new = liftIO do
         line INTEGER,
         column_start INTEGER,
         column_end INTEGER
-      )
+      );
     |]
   execute_
     conn
     [sql|
-      CREATE TABLE references (
+      CREATE TABLE refs (
         name TEXT,
         uri TEXT,
         line INTEGER,
         column_start INTEGER,
         column_end INTEGER
-      )
-    |]
-
-  execute_
-    conn
-    [sql|
-      CREATE TABLE references (
-        name TEXT,
-        uri TEXT,
-        line INTEGER,
-        column_start INTEGER,
-        column_end INTEGER
-      )
+      );
     |]
 
   execute_ conn [sql| CREATE INDEX idx_anchors_name ON anchors (name) |]
   execute_ conn [sql| CREATE INDEX idx_anchors_uri ON anchors (uri) |]
   execute_ conn [sql| CREATE INDEX idx_anchors_line ON anchors (line) |]
 
-  execute_ conn [sql| CREATE INDEX idx_references_name ON references (name) |]
-  execute_ conn [sql| CREATE INDEX idx_references_uri ON references (uri) |]
-  execute_ conn [sql| CREATE INDEX idx_references_line ON references (line) |]
+  execute_ conn [sql| CREATE INDEX idx_refs_name ON refs (name) |]
+  execute_ conn [sql| CREATE INDEX idx_refs_uri ON refs (uri) |]
+  execute_ conn [sql| CREATE INDEX idx_refs_line ON refs (line) |]
 
   pure conn
 
@@ -95,7 +83,7 @@ insertReference :: (MonadIO m) => Connection -> Symbol -> m ()
 insertReference conn reference = liftIO do
   execute
     conn
-    [sql|INSERT INTO references (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
+    [sql|INSERT INTO refs (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
     (reference)
 
 deleteSymbolsExcept :: (MonadIO m) => Connection -> [LSP.Uri] -> m ()
@@ -103,7 +91,7 @@ deleteSymbolsExcept conn uris = liftIO do
   let placeholders = T.intercalate "," (replicate (length uris) "?")
   let query = "DELETE FROM anchors WHERE uri NOT IN (" <> placeholders <> ")"
   execute conn (Query query) uris
-  let queryRefs = "DELETE FROM references WHERE uri NOT IN (" <> placeholders <> ")"
+  let queryRefs = "DELETE FROM refs WHERE uri NOT IN (" <> placeholders <> ")"
   execute conn (Query queryRefs) uris
 
 -- findSymbolAtPosition :: (MonadIO m) => Connection -> LSP.Uri -> LSP.Position -> m (Maybe Symbol)
@@ -123,7 +111,7 @@ deleteSymbolsExcept conn uris = liftIO do
 --       UNION
 
 --       ( SELECT name, uri, line, column_start, column_end
---         FROM references
+--         FROM refs
 --         WHERE uri = ?1 AND line = ?2 AND column_start <= ?3 AND column_end >= ?3
 --         LIMIT 1
 --       )
@@ -149,7 +137,7 @@ findReferencesWithName conn name = liftIO do
     conn
     [sql|
       SELECT name, uri, line, column_start, column_end
-      FROM references
+      FROM refs
       WHERE name = ?1
     |]
     (Only name)
@@ -178,7 +166,7 @@ findReferenceAtPosition conn uri lspPos = liftIO do
       conn
       [sql|
         SELECT name, uri, line, column_start, column_end
-        FROM references
+        FROM refs
         WHERE uri = ?1 AND line = ?2 AND column_start <= ?3 AND column_end >= ?3
         LIMIT 1
     |]
@@ -187,13 +175,13 @@ findReferenceAtPosition conn uri lspPos = liftIO do
 deleteSymbolsForFile :: (MonadIO m) => Connection -> LSP.Uri -> m ()
 deleteSymbolsForFile conn uri = liftIO do
   execute conn [sql|DELETE FROM anchors WHERE uri = ?|] (Only uri)
-  execute conn [sql|DELETE FROM references WHERE uri = ?|] (Only uri)
+  execute conn [sql|DELETE FROM refs WHERE uri = ?|] (Only uri)
 
 deleteSymbolsForFileOrDirectory :: (MonadIO m) => Connection -> LSP.Uri -> m ()
 deleteSymbolsForFileOrDirectory conn uri = liftIO do
   let prefix = addTrailingPathSeparator uri
   execute conn [sql|DELETE FROM anchors WHERE uri LIKE ?|] [prefix <> "%"]
-  execute conn [sql|DELETE FROM references WHERE uri LIKE ?|] [prefix <> "%"]
+  execute conn [sql|DELETE FROM refs WHERE uri LIKE ?|] [prefix <> "%"]
   where
     -- We MUST add a trailing path separator.
     -- Otherwise, `isWithinDir ./foobar/file.md ./foo` would incorrectly be `True`.
@@ -208,7 +196,7 @@ findUnusedAnchors conn = liftIO do
     [sql|
       SELECT name, uri, line, column_start, column_end
       FROM anchors
-      WHERE name NOT IN (SELECT name FROM references)
+      WHERE name NOT IN (SELECT name FROM refs)
       ORDER BY name
     |]
 
@@ -218,7 +206,7 @@ findBrokenReferences conn = liftIO do
     conn
     [sql|
       SELECT name, uri, line, column_start, column_end
-      FROM references
+      FROM refs
       WHERE name NOT IN (SELECT name FROM anchors)
       ORDER BY name
     |]
@@ -243,7 +231,7 @@ deleteSymbolsInLineRange conn uri startLine endLine = liftIO do
     (uri, startLine, endLine)
   execute
     conn
-    [sql|DELETE FROM references WHERE uri = ? AND line BETWEEN ? AND ?|]
+    [sql|DELETE FROM refs WHERE uri = ? AND line BETWEEN ? AND ?|]
     (uri, startLine, endLine)
 
 shiftSymbolsAfterLine :: (MonadIO m) => Connection -> LSP.Uri -> LineNum -> LSP.UInt -> m ()
