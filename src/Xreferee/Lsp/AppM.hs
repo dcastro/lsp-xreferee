@@ -52,7 +52,8 @@ data AppEnv = AppEnv
     -- | Whether to log the payloads of LSP requests / notifications
     -- (at the debug level, to the logfile, if one is supplied).
     -- Can be very verbose e.g. when a large file is opened.
-    logPayloads :: Bool
+    logPayloads :: Bool,
+    conn :: Connection
   }
 
 -- `logger` is a polymorphic field, and GHC does not resolve
@@ -73,7 +74,6 @@ getLogger AppEnv {logger} = logger
 
 data AppState = AppState
   { symbols :: Symbols,
-    conn :: Connection,
     -- | True if the symbols database has been modified since the last time diagnostics were sent to the client.
     isDbDirty :: Bool,
     -- | Keep track of which files have warnings/errors.
@@ -101,6 +101,11 @@ getState :: AppM AppState
 getState = do
   appData <- ask
   liftIO $ readMVar appData.state
+
+putState :: AppState -> AppM ()
+putState newState = do
+  appData <- ask
+  liftIO $ modifyMVar_ appData.state \_ -> pure newState
 
 ----------------------------------------------------------------------------
 -- Utils

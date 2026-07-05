@@ -34,7 +34,7 @@ import Xreferee.Lsp.Handlers.References (handleReferences)
 import Xreferee.Lsp.Handlers.Rename (handleRename)
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Options qualified as LspOpt
-import Xreferee.Lsp.SendDiagnostics (modifyState, sendDiagnostics, sendDiagnostics2)
+import Xreferee.Lsp.SendDiagnostics (sendDiagnostics2)
 import Xreferee.Lsp.Symbols qualified as Symbols
 import Xreferee.Lsp.Types qualified as Types
 import Xreferee.Lsp.Util qualified as Util
@@ -145,7 +145,6 @@ initialize appLogger _startupLogger = do
           filesWithDiagnostics = Set.empty,
           fileVersions = SM.empty,
           shouldHandleFiles = SM.empty,
-          conn,
           isDbDirty = True
         }
   pure
@@ -154,7 +153,8 @@ initialize appLogger _startupLogger = do
           AppEnv
             { logger = appLogger,
               repoRootDir = FP.splitDirectories repoRootDir,
-              logPayloads = False
+              logPayloads = False,
+              conn
             },
         state
       }
