@@ -2,6 +2,7 @@ module Xreferee.Lsp.SendDiagnostics where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
+import Control.Monad.State (MonadState (..))
 import Data.IxSet.Typed qualified as Ix
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -14,17 +15,16 @@ import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Types (SymbolEntry (..), SymbolLoc (..), Symbols (..))
+import Xreferee.Lsp.Util (modifyM', modifyM'_)
 import Xreferee.Lsp.Util qualified as Util
 
 -- | Modify the app state, and then send diagnostics to the client if the symbols have changed.
 -- #(ref:modifyState)
 modifyState :: (AppState -> AppM AppState) -> AppM ()
 modifyState act = do
-  env <- ask
-  Unlift.modifyMVar_ env.state \appState0 -> do
+  modifyM'_ \appState0 -> do
     appState1 <- act appState0
-
-    -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
+    --   -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
     if appState0.symbols == appState1.symbols
       then pure appState1
       else sendDiagnostics appState1
@@ -117,12 +117,12 @@ sendDiagnostics state = do
   -- Publish all diagnostics
   let allDiagnosticsByFile = Map.fromListWith (<>) $ unusedAnchorsDiagnostics <> brokenRefsDiagnostics <> duplicateAnchorsDiagnostics
   forM_ (Map.toList allDiagnosticsByFile) $ \(uri, diagnostics) -> do
-    publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (partitionBySource diagnostics)
+    lift $ publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (partitionBySource diagnostics)
 
   -- Clear diagnostics for files that had diagnostics before but don't have any now.
   let filesWithDiagnosticsNow = Map.keysSet allDiagnosticsByFile
   let filesWithDiagnosticsBefore = state.filesWithDiagnostics
   forM_ (Set.difference filesWithDiagnosticsBefore filesWithDiagnosticsNow) \uri -> do
-    publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (Map.singleton diagnosticsSource mempty)
+    lift $ publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (Map.singleton diagnosticsSource mempty)
 
   pure state {filesWithDiagnostics = filesWithDiagnosticsNow}

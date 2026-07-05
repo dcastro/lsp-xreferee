@@ -25,7 +25,7 @@ import Xreferee.Lsp.Util qualified as Util
 -- and if so, it reparses the file and updates the symbols.
 handleDidOpen :: Handler AppM 'LSP.Method_TextDocumentDidOpen
 handleDidOpen = \req -> do
-  Log.logNot req
+  lift $ Log.logNot req
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text . to fromStrict . to encodeUtf8

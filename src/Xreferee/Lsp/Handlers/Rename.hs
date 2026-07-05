@@ -2,6 +2,7 @@ module Xreferee.Lsp.Handlers.Rename where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
+import Control.Monad.State (get)
 import Data.IxSet.Typed ((@=))
 import Data.IxSet.Typed qualified as Ix
 import Data.Map qualified as Map
@@ -20,13 +21,13 @@ import Xreferee.Lsp.Util qualified as Util
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename
 handleRename :: Handler AppM 'LSP.Method_TextDocumentRename
 handleRename = \req responder -> do
-  Log.logReq req
+  lift $ Log.logReq req
 
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position
   let newLabelName = req ^. LSP.params . LSP.newName
 
-  state <- getState
+  state <- get
 
   let maybeMatch = case (Util.findSymbolAtPosition uri pos state.symbols.anchors, Util.findSymbolAtPosition uri pos state.symbols.references) of
         (Just anchorEntry, _) -> Just $ X.getLabel anchorEntry.symbol

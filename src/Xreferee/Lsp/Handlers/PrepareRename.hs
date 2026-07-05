@@ -2,6 +2,7 @@ module Xreferee.Lsp.Handlers.PrepareRename where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
+import Control.Monad.State (get)
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
@@ -17,7 +18,7 @@ handlePrepareRename = \req responder -> do
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position
 
-  state <- getState
+  state <- get
   let maybeMatch = case (Util.findSymbolAtPosition uri pos state.symbols.anchors, Util.findSymbolAtPosition uri pos state.symbols.references) of
         (Just anchorEntry, _) -> Just (X.getLabel anchorEntry.symbol, anchorEntry.loc)
         (_, Just refEntry) -> Just (X.getLabel refEntry.symbol, refEntry.loc)

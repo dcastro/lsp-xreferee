@@ -2,7 +2,7 @@ module Xreferee.Lsp.Util where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
-import Control.Monad.State (StateT, get, put, runStateT)
+import Control.Monad.State (MonadState, StateT, get, put, runStateT)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.IxSet.Typed ((@+), (@<=), (@=), (@>=))
 import Data.IxSet.Typed qualified as Ix
@@ -166,7 +166,7 @@ timedReq handler = \req responder -> do
   handler req responder
   t1 <- liftIO Time.getPOSIXTime
   let duration = t1 - t0
-  Log.debugP ("Handled " <> tshow method <> " in") duration
+  lift $ Log.debugP ("Handled " <> tshow method <> " in") duration
 
 -- | Wraps a notification handler to log the time it took to handle the notification.
 timedNot :: forall from (method :: LSP.Method from 'LSP.Notification). LSP.Handler AppM method -> LSP.Handler AppM method
@@ -176,7 +176,29 @@ timedNot handler = \req -> do
   handler req
   t1 <- liftIO Time.getPOSIXTime
   let duration = t1 - t0
-  Log.debugP ("Handled " <> tshow method <> " in") duration
+  lift $ Log.debugP ("Handled " <> tshow method <> " in") duration
+
+modifyM' :: (MonadState s m) => (s -> m (s, a)) -> m a
+modifyM' f = do
+  s <- get
+  (s, a) <- f s
+  put s
+  pure a
+
+modifyM'_ :: (MonadState s m) => (s -> m s) -> m ()
+modifyM'_ f = do
+  s <- get
+  s <- f s
+  put s
+  pure ()
+
+-- | Modify the app state, without sending diagnostics to the client.
+-- This is useful for operations that we know won't change the symbols, and thus won't change the diagnostics
+--
+-- You should prefer @(ref:modifyState)
+modifyStateWithoutDiagnostics :: (AppState -> AppM (AppState, a)) -> AppM a
+modifyStateWithoutDiagnostics act = do
+  modifyM' act
 
 -- | Checks whether we should ignore or process a given file.
 --
@@ -186,8 +208,10 @@ timedNot handler = \req -> do
 shouldHandleFile :: Uri -> AppM Bool
 shouldHandleFile uri = do
   modifyStateWithoutDiagnostics \appState -> do
-    (should, appState) <- flip runStateT appState $ shouldHandleFile' uri
-    pure (appState, should)
+    undefined
+
+-- (should, appState) <- flip runStateT appState $ shouldHandleFile' uri
+-- pure (appState, should)
 
 -- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
 -- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.

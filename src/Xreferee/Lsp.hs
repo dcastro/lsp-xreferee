@@ -101,7 +101,15 @@ run cliOptions = flip E.catches handlers $ do
               startupLoggers <& ("Server initialized in " <> tshow startupTime) `WithSeverity` L.Info
               pure (Right (env, appEnv)),
             staticHandlers = \_caps -> mkHandlers,
-            interpretHandler = \(env, appEnv) -> Iso {forward = (runAppM appEnv env), backward = liftIO},
+            interpretHandler = \(env, (AppData appEnv appState)) ->
+              Iso
+                { forward = \app -> do
+                    -- Acquire the `MVar AppState`, run the handler in `StateT AppState`, and release the MVar.
+                    modifyMVar appState \appState -> do
+                      (a, appState) <- runAppM appState appEnv env app
+                      pure (appState, a),
+                  backward = liftIO
+                },
             options = lspOptions
           }
 
@@ -185,8 +193,8 @@ mkHandlers =
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
         pure (),
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \_msg -> do
-        cfg <- getConfig
-        Log.debugP "Configuration changed" cfg,
+        cfg <- lift getConfig
+        lift $ Log.debugP "Configuration changed" cfg,
       notificationHandler LSP.SMethod_TextDocumentDidChange (Util.timedNot $ filterNot handleDidChange),
       requestHandler LSP.SMethod_TextDocumentPrepareRename (Util.timedReq $ filterReq handlePrepareRename),
       requestHandler LSP.SMethod_TextDocumentRename (Util.timedReq $ filterReq handleRename),

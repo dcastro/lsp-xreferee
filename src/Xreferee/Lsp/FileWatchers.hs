@@ -28,7 +28,7 @@ watchRepoFiles = do
   let handler = dispatcher
 
   appLogger <- view logger
-  let coreLogger = L.cmap (fmap (tshow . pretty)) appLogger
+  let coreLogger = undefined --  L.cmap (fmap (tshow . pretty)) appLogger
   let registrationOptions =
         LSP.DidChangeWatchedFilesRegistrationOptions
           { _watchers = [watcher]

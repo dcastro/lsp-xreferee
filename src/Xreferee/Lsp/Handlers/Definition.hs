@@ -2,6 +2,7 @@ module Xreferee.Lsp.Handlers.Definition where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
+import Control.Monad.State (get)
 import Data.IxSet.Typed ((@=))
 import Data.IxSet.Typed qualified as Ix
 import Language.LSP.Protocol.Lens qualified as LSP
@@ -17,12 +18,12 @@ import Xreferee.Lsp.Util qualified as Util
 
 handleDefinition :: Handler AppM 'LSP.Method_TextDocumentDefinition
 handleDefinition = \req responder -> do
-  Log.logReq req
+  lift $ Log.logReq req
 
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
 
-  state <- getState
+  state <- get
 
   case Util.findSymbolAtPosition reqUri reqPos state.symbols.references of
     Nothing ->
