@@ -14,6 +14,7 @@ import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import System.FilePath qualified as FP
 import Unsafe.Coerce qualified as Unsafe
+import Xreferee.Lsp.AppM (AppM, AppState (..), modifyState2)
 
 data Symbol = Symbol
   { name :: Text,
@@ -97,32 +98,6 @@ deleteSymbolsExcept conn uris = liftIO do
   execute conn (Query query) uris
   let queryRefs = "DELETE FROM refs WHERE uri NOT IN (" <> placeholders <> ")"
   execute conn (Query queryRefs) uris
-
--- findSymbolAtPosition :: (MonadIO m) => Connection -> LSP.Uri -> LSP.Position -> m (Maybe Symbol)
--- findSymbolAtPosition conn uri lspPos = liftIO do
---   let reqLine = lspPos ^. LSP.line
---   let reqColumn = lspPos ^. LSP.character
---   symbols <-
---     query @_ @Symbol
---       conn
---       [sql|
---       ( SELECT name, uri, line, column_start, column_end
---         FROM anchors
---         WHERE uri = ?1 AND line = ?2 AND column_start <= ?3 AND column_end >= ?3
---         LIMIT 1
---       )
-
---       UNION
-
---       ( SELECT name, uri, line, column_start, column_end
---         FROM refs
---         WHERE uri = ?1 AND line = ?2 AND column_start <= ?3 AND column_end >= ?3
---         LIMIT 1
---       )
---     |]
---       (uri, reqLine, reqColumn)
-
---   pure $ listToMaybe symbols
 
 findAnchorsWithName :: (MonadIO m) => Connection -> Text -> m [Symbol]
 findAnchorsWithName conn name = liftIO do
@@ -229,23 +204,35 @@ findDuplicateAnchors conn = liftIO do
       ORDER BY name
     |]
 
-deleteSymbolsInLineRange :: (MonadIO m) => Connection -> LSP.Uri -> LineNum -> LineNum -> m ()
-deleteSymbolsInLineRange conn uri startLine endLine = liftIO do
-  execute
-    conn
-    [sql|DELETE FROM anchors WHERE uri = ? AND line BETWEEN ? AND ?|]
-    (uri, startLine, endLine)
-  execute
-    conn
-    [sql|DELETE FROM refs WHERE uri = ? AND line BETWEEN ? AND ?|]
-    (uri, startLine, endLine)
+deleteSymbolsInLineRange :: Connection -> LSP.Uri -> LineNum -> LineNum -> AppM ()
+deleteSymbolsInLineRange conn uri startLine endLine = do
+  liftIO $
+    execute
+      conn
+      [sql|DELETE FROM anchors WHERE uri = ? AND line BETWEEN ? AND ?|]
+      (uri, startLine, endLine)
+  checkDirty conn
+  liftIO $
+    execute
+      conn
+      [sql|DELETE FROM refs WHERE uri = ? AND line BETWEEN ? AND ?|]
+      (uri, startLine, endLine)
+  checkDirty conn
 
-shiftSymbolsAfterLine :: (MonadIO m) => Connection -> LSP.Uri -> LineNum -> LSP.UInt -> m ()
-shiftSymbolsAfterLine conn uri lineNum delta = liftIO do
-  execute
-    conn
-    [sql|UPDATE anchors SET line = line + ? WHERE uri = ? AND line > ?|]
-    (delta, uri, lineNum)
+shiftSymbolsAfterLine :: Connection -> LSP.Uri -> LineNum -> LSP.UInt -> AppM ()
+shiftSymbolsAfterLine conn uri lineNum delta = do
+  liftIO $
+    execute
+      conn
+      [sql|UPDATE anchors SET line = line + ? WHERE uri = ? AND line > ?|]
+      (delta, uri, lineNum)
+  checkDirty conn
+  liftIO $
+    execute
+      conn
+      [sql|UPDATE refs SET line = line + ? WHERE uri = ? AND line > ?|]
+      (delta, uri, lineNum)
+  checkDirty conn
 
 instance ToField LSP.Uri where
   toField uri = toField uri.getUri

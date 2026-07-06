@@ -92,22 +92,12 @@ loadSymbolsForFile2 uri contents fileVersion = do
   forM_ (LBS.lines contents `zip` [0 ..]) \(line, lineNum) -> do
     let (anchors, refs) = X.parseLabels X.defaultDelims line
 
-    let mkSymbol :: forall symbol. (X.Label symbol) => symbol -> X.ColumnRange -> Symbol
-        mkSymbol sym columnRange =
-          Db.Symbol
-            { name = X.getLabel sym,
-              uri,
-              line = LineNum lineNum,
-              columnStart = Symbols.xToLsp columnRange.start,
-              columnEnd = Symbols.xToLsp columnRange.end
-            }
-
     forM_ anchors \(anchor, columnRange) -> do
-      let symbol = mkSymbol anchor columnRange
+      let symbol = Symbols.mkSymbol anchor uri (LineNum lineNum) columnRange
       Db.insertAnchor conn symbol
 
     forM_ refs \(ref, columnRange) -> do
-      let symbol = mkSymbol ref columnRange
+      let symbol = Symbols.mkSymbol ref uri (LineNum lineNum) columnRange
       Db.insertReference conn symbol
 
   -- Update the version we have for this file.

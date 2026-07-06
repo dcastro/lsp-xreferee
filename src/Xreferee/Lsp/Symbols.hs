@@ -25,14 +25,8 @@ insertSearchResult conn repoRootDir searchResult = do
       forM_ locs \loc -> do
         uri <- convertFilePathToUri repoRootDir loc.filepath
 
-        let symbol =
-              Db.Symbol
-                { name = X.getLabel anchor,
-                  uri,
-                  line = LineNum $ xToLsp loc.lineNum,
-                  columnStart = xToLsp loc.columnRange.start,
-                  columnEnd = xToLsp loc.columnRange.end
-                }
+        let symbol = mkSymbol anchor uri (LineNum $ xToLsp loc.lineNum) loc.columnRange
+
         lift $ Db.insertAnchor conn symbol
   where
     convertFilePathToUri :: (Monad m) => FilePath -> FilePath -> StateT UriCache m LSP.Uri
@@ -50,3 +44,13 @@ insertSearchResult conn repoRootDir searchResult = do
 -- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
 xToLsp :: Int -> LSP.UInt
 xToLsp xLine = fromIntegral @Int @LSP.UInt (xLine - 1)
+
+mkSymbol :: forall symbol. (X.Label symbol) => symbol -> LSP.Uri -> Db.LineNum -> X.ColumnRange -> Db.Symbol
+mkSymbol sym uri lineNum columnRange =
+  Db.Symbol
+    { name = X.getLabel sym,
+      uri,
+      line = lineNum,
+      columnStart = xToLsp columnRange.start,
+      columnEnd = xToLsp columnRange.end
+    }
