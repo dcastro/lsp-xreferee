@@ -30,15 +30,19 @@ handleDidOpen = \req -> do
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text . to fromStrict . to encodeUtf8
 
+  appState <- getState
+  when (checkIfBufferIsDirty uri fileVersion appState) do
+    Util.loadSymbolsForFile2 uri contents fileVersion
+
   modifyState \appState -> do
-    if not (checkIsDirty uri fileVersion appState)
+    if not (checkIfBufferIsDirty uri fileVersion appState)
       then
         pure appState
       else do
         pure $ Util.loadSymbolsForFile uri contents fileVersion appState
   where
-    checkIsDirty :: Uri -> Int32 -> AppState -> Bool
-    checkIsDirty uri fileVersion appState =
+    checkIfBufferIsDirty :: Uri -> Int32 -> AppState -> Bool
+    checkIfBufferIsDirty uri fileVersion appState =
       let lastSeenVersion = SM.findWithDefault 1 uri appState.fileVersions
        in -- NOTE: versions are not strictly monotonic.
           -- If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
