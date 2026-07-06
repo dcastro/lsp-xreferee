@@ -91,13 +91,15 @@ insertReference conn reference = do
       (reference)
   setDirty
 
-deleteSymbolsExcept :: (MonadIO m) => Connection -> [LSP.Uri] -> m ()
-deleteSymbolsExcept conn uris = liftIO do
+deleteSymbolsExcept :: Connection -> [LSP.Uri] -> AppM ()
+deleteSymbolsExcept conn uris = do
   let placeholders = T.intercalate "," (replicate (length uris) "?")
   let query = "DELETE FROM anchors WHERE uri NOT IN (" <> placeholders <> ")"
-  execute conn (Query query) uris
+  liftIO $ execute conn (Query query) uris
+  checkDirty conn
   let queryRefs = "DELETE FROM refs WHERE uri NOT IN (" <> placeholders <> ")"
-  execute conn (Query queryRefs) uris
+  liftIO $ execute conn (Query queryRefs) uris
+  checkDirty conn
 
 findAnchorsWithName :: (MonadIO m) => Connection -> Text -> m [Symbol]
 findAnchorsWithName conn name = liftIO do
@@ -158,11 +160,13 @@ deleteSymbolsForFile conn uri = do
   liftIO $ execute conn [sql|DELETE FROM refs WHERE uri = ?|] (Only uri)
   checkDirty conn
 
-deleteSymbolsForFileOrDirectory :: (MonadIO m) => Connection -> LSP.Uri -> m ()
-deleteSymbolsForFileOrDirectory conn uri = liftIO do
+deleteSymbolsForFileOrDirectory :: Connection -> LSP.Uri -> AppM ()
+deleteSymbolsForFileOrDirectory conn uri = do
   let prefix = addTrailingPathSeparator uri
-  execute conn [sql|DELETE FROM anchors WHERE uri LIKE ?|] [prefix <> "%"]
-  execute conn [sql|DELETE FROM refs WHERE uri LIKE ?|] [prefix <> "%"]
+  liftIO $ execute conn [sql|DELETE FROM anchors WHERE uri LIKE ?|] [prefix <> "%"]
+  checkDirty conn
+  liftIO $ execute conn [sql|DELETE FROM refs WHERE uri LIKE ?|] [prefix <> "%"]
+  checkDirty conn
   where
     -- We MUST add a trailing path separator.
     -- Otherwise, `isWithinDir ./foobar/file.md ./foo` would incorrectly be `True`.
