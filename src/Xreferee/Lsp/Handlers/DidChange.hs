@@ -73,11 +73,11 @@ applyChanges conn uri diffs =
               newLineCount = fromIntegral @Int @UInt $ diff ^. LSP.text . to (T.count "\n") + 1
 
               -- How many lines were added (or removed) by this diff.
-              lineDelta = newLineCount - oldLineCount
+              lineDelta :: Int = fromIntegral @UInt @Int newLineCount - fromIntegral @UInt @Int oldLineCount
 
               -- Update the line numbers we need to reparse.
               -- If they occur after this diff, they need to be shifted by the line delta, just like the anchors/refs.
-              linesToParse0 = result.linesToParse <&> (\lineNum -> if lineNum > oldLineEnd then lineNum + lineDelta else lineNum)
+              linesToParse0 = result.linesToParse <&> (\lineNum -> if lineNum > oldLineEnd then lineNum `uintSum` lineDelta else lineNum)
 
               -- We'll need to reparse all the lines that were modified by this diff.
               -- NOTE: we don't parse them _straight_ away, because the VFS only has the state of the file after all the diffs have been applied,
@@ -94,6 +94,9 @@ applyChanges conn uri diffs =
             result
               { linesToParse = linesToParse1
               }
+
+uintSum :: UInt -> Int -> UInt
+uintSum a b = fromIntegral @Int @UInt $ fromIntegral @UInt @Int a + b
 
 data ApplyChangesResult = ApplyChangesResult
   { linesToParse :: [UInt]

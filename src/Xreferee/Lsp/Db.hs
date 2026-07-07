@@ -223,7 +223,7 @@ deleteSymbolsInLineRange conn uri startLine endLine = do
       (uri, startLine, endLine)
   checkDirty conn
 
-shiftSymbolsAfterLine :: Connection -> LSP.Uri -> LineNum -> LSP.UInt -> AppM ()
+shiftSymbolsAfterLine :: Connection -> LSP.Uri -> LineNum -> Int -> AppM ()
 shiftSymbolsAfterLine conn uri lineNum delta = do
   when (delta /= 0) do
     liftIO $
