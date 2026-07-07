@@ -4,6 +4,7 @@ import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Data.Map.Strict qualified as SM
 import Data.Maybe qualified as Maybe
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as LT
 import Data.Text.Mixed.Rope qualified as Rope
@@ -59,7 +60,7 @@ handleDidChange = \req -> do
 -- and updates the line numbers of anchors/refs that are located after the diffs.
 applyChanges :: Connection -> Uri -> [LSP.TextDocumentContentChangeEvent] -> AppM ApplyChangesResult
 applyChanges conn uri diffs =
-  let initialState = ApplyChangesResult {linesToParse = []}
+  let initialState = ApplyChangesResult {linesToParse = mempty}
    in foldM go initialState diffs
   where
     go :: ApplyChangesResult -> LSP.TextDocumentContentChangeEvent -> AppM ApplyChangesResult
@@ -77,12 +78,14 @@ applyChanges conn uri diffs =
 
               -- Update the line numbers we need to reparse.
               -- If they occur after this diff, they need to be shifted by the line delta, just like the anchors/refs.
-              linesToParse0 = result.linesToParse <&> (\lineNum -> if lineNum > oldLineEnd then lineNum `uintSum` lineDelta else lineNum)
+              linesToParse0 =
+                result.linesToParse & Set.map \lineNum ->
+                  if lineNum > oldLineEnd then lineNum `uintSum` lineDelta else lineNum
 
               -- We'll need to reparse all the lines that were modified by this diff.
               -- NOTE: we don't parse them _straight_ away, because the VFS only has the state of the file after all the diffs have been applied,
               -- so we need to wait until the end of the function to parse them, once we've processed all the diffs and updated our state accordingly.
-              linesToParse1 = linesToParse0 <> [oldLineStart .. oldLineStart + newLineCount - 1]
+              linesToParse1 = linesToParse0 <> Set.fromList [oldLineStart .. oldLineStart + newLineCount - 1]
 
           -- Discard anchors/refs on lines that were modified by this diff
           Db.deleteSymbolsInLineRange conn uri (Db.LineNum oldLineStart) (Db.LineNum oldLineEnd)
@@ -99,5 +102,6 @@ uintSum :: UInt -> Int -> UInt
 uintSum a b = fromIntegral @Int @UInt $ fromIntegral @UInt @Int a + b
 
 data ApplyChangesResult = ApplyChangesResult
-  { linesToParse :: [UInt]
+  { -- NOTE: this has to be a set, so we don't end up parsing the same line twice and, thus, end up with duplicate symbols.
+    linesToParse :: Set UInt
   }
