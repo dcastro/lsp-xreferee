@@ -9,7 +9,6 @@ import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Log qualified as Log
-import Xreferee.Lsp.SendDiagnostics (modifyState)
 import Xreferee.Lsp.Util qualified as Util
 
 -- | Handle `didOpen` notifications.
@@ -33,13 +32,6 @@ handleDidOpen = \req -> do
   appState <- getState
   when (checkIfBufferIsDirty uri fileVersion appState) do
     Util.loadSymbolsForFile2 uri contents fileVersion
-
-  modifyState \appState -> do
-    if not (checkIfBufferIsDirty uri fileVersion appState)
-      then
-        pure appState
-      else do
-        pure $ Util.loadSymbolsForFile uri contents fileVersion appState
   where
     checkIfBufferIsDirty :: Uri -> Int32 -> AppState -> Bool
     checkIfBufferIsDirty uri fileVersion appState =
