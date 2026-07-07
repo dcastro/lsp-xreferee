@@ -2,6 +2,7 @@ module Xreferee.Lsp.Handlers.DidChange where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
+import Data.Ix (inRange)
 import Data.Map.Strict qualified as SM
 import Data.Maybe qualified as Maybe
 import Data.Set qualified as Set
@@ -76,11 +77,18 @@ applyChanges conn uri diffs =
               -- How many lines were added (or removed) by this diff.
               lineDelta :: Int = fromIntegral @UInt @Int newLineCount - fromIntegral @UInt @Int oldLineCount
 
-              -- Update the line numbers we need to reparse.
-              -- If they occur after this diff, they need to be shifted by the line delta, just like the anchors/refs.
               linesToParse0 =
-                result.linesToParse & Set.map \lineNum ->
-                  if lineNum > oldLineEnd then lineNum `uintSum` lineDelta else lineNum
+                result.linesToParse
+                  -- Lines inside this diff's range are stale (their content was consumed/rewritten by this diff,
+                  -- and will be re-added below if still needed), so drop them, just like `deleteSymbolsInLineRange`
+                  -- does for the symbols in the DB.
+                  -- Lines after this diff need to be shifted by the line delta, just like the anchors/refs.
+                  & Set.filter (not . inRange (oldLineStart, oldLineEnd))
+                  -- Update the line numbers we need to reparse.
+                  -- If they occur after this diff, they need to be shifted by the line delta,
+                  -- just like `shiftSymbolsAfterLine` does for the symbols in the DB.
+                  & Set.map \lineNum ->
+                    if lineNum > oldLineEnd then lineNum `uintSum` lineDelta else lineNum
 
               -- We'll need to reparse all the lines that were modified by this diff.
               -- NOTE: we don't parse them _straight_ away, because the VFS only has the state of the file after all the diffs have been applied,

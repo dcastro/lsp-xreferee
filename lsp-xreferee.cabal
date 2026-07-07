@@ -41,6 +41,7 @@ library
       Xreferee.Lsp.Handlers.Rename
       Xreferee.Lsp.Log
       Xreferee.Lsp.Options
+      Xreferee.Lsp.Orphans
       Xreferee.Lsp.SendDiagnostics
       Xreferee.Lsp.Symbols
       Xreferee.Lsp.TH

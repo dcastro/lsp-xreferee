@@ -1,5 +1,4 @@
 {-# LANGUAGE QuasiQuotes #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Xreferee.Lsp.Db where
 
@@ -13,8 +12,9 @@ import Database.SQLite.Simple.ToField (ToField (..))
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import System.FilePath qualified as FP
-import Unsafe.Coerce qualified as Unsafe
 import Xreferee.Lsp.AppM (AppM, AppState (..), modifyState2)
+import Xreferee.Lsp.Log qualified as Log
+import Xreferee.Lsp.Orphans ()
 
 data Symbol = Symbol
   { name :: Text,
@@ -238,18 +238,6 @@ shiftSymbolsAfterLine conn uri lineNum delta = do
         [sql|UPDATE refs SET line = line + ? WHERE uri = ? AND line > ?|]
         (delta, uri, lineNum)
     checkDirty conn
-
-instance ToField LSP.Uri where
-  toField uri = toField uri.getUri
-
-instance FromField LSP.Uri where
-  fromField f = LSP.Uri <$> fromField f
-
-instance ToField LSP.UInt where
-  toField n = toField $ Unsafe.unsafeCoerce @LSP.UInt @Word n
-
-instance FromField LSP.UInt where
-  fromField f = Unsafe.unsafeCoerce @Word @LSP.UInt <$> fromField f
 
 instance FromRow Symbol where
   fromRow = Symbol <$> field <*> field <*> field <*> field <*> field
