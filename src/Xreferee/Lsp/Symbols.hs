@@ -24,10 +24,13 @@ insertSearchResult conn repoRootDir searchResult = do
     forM_ (Map.toList searchResult.anchors) \(anchor, locs) -> do
       forM_ locs \loc -> do
         uri <- convertFilePathToUri repoRootDir loc.filepath
-
         let symbol = mkSymbol anchor uri (LineNum $ xToLsp loc.lineNum) loc.columnRange
-
         lift $ Db.insertAnchor conn symbol
+    forM_ (Map.toList searchResult.references) \(reference, locs) -> do
+      forM_ locs \loc -> do
+        uri <- convertFilePathToUri repoRootDir loc.filepath
+        let symbol = mkSymbol reference uri (LineNum $ xToLsp loc.lineNum) loc.columnRange
+        lift $ Db.insertReference conn symbol
   where
     convertFilePathToUri :: (Monad m) => FilePath -> FilePath -> StateT UriCache m LSP.Uri
     convertFilePathToUri repoRootDir fp = do
