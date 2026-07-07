@@ -225,18 +225,19 @@ deleteSymbolsInLineRange conn uri startLine endLine = do
 
 shiftSymbolsAfterLine :: Connection -> LSP.Uri -> LineNum -> LSP.UInt -> AppM ()
 shiftSymbolsAfterLine conn uri lineNum delta = do
-  liftIO $
-    execute
-      conn
-      [sql|UPDATE anchors SET line = line + ? WHERE uri = ? AND line > ?|]
-      (delta, uri, lineNum)
-  checkDirty conn
-  liftIO $
-    execute
-      conn
-      [sql|UPDATE refs SET line = line + ? WHERE uri = ? AND line > ?|]
-      (delta, uri, lineNum)
-  checkDirty conn
+  when (delta /= 0) do
+    liftIO $
+      execute
+        conn
+        [sql|UPDATE anchors SET line = line + ? WHERE uri = ? AND line > ?|]
+        (delta, uri, lineNum)
+    checkDirty conn
+    liftIO $
+      execute
+        conn
+        [sql|UPDATE refs SET line = line + ? WHERE uri = ? AND line > ?|]
+        (delta, uri, lineNum)
+    checkDirty conn
 
 instance ToField LSP.Uri where
   toField uri = toField uri.getUri
