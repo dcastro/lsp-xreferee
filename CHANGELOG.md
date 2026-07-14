@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+* Dump to a logfile when the server crashes.
+
 ## 0.0.2
 
 * Upgraded to [`xreferee v1.1.1`](https://github.com/brandonchinn178/xreferee/releases/tag/v1.1.1)
