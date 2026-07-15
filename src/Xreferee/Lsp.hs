@@ -8,9 +8,13 @@ import Control.Lens hiding (Indexable, Iso)
 import Data.Aeson qualified as J
 import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
+import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Data.Time.Clock.POSIX qualified as Time
+import Data.Time.Format qualified as Time
+import Data.Time.LocalTime qualified as Time
 import Data.Version qualified as Version
+import GHC.Conc (setUncaughtExceptionHandler)
 import Language.LSP.Logging (defaultClientLogger)
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
@@ -19,8 +23,10 @@ import Language.LSP.Server as LSP
 import Options.Applicative qualified as Opt
 import Paths_lsp_xreferee (version)
 import Prettyprinter
+import System.Directory qualified as Dir
 import System.Exit
 import System.FilePath qualified as FP
+import System.IO qualified as SIO
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
@@ -41,6 +47,12 @@ import Xreferee.Lsp.Util qualified as Util
 
 main :: IO ()
 main = do
+  -- Catch exceptions that escape threads spawned by the `lsp` library (e.g. its
+  -- request-handling threads) and would otherwise just be printed to stderr and lost,
+  -- since stderr isn't visible to the user when running as an LSP server.
+  -- The exception is logged to `~/.cache/lsp-xreferee/crash.log`
+  setUncaughtExceptionHandler (dumpCrash "uncaught exception (background thread)")
+
   cliOptions <- Opt.execParser LspOpt.cliParserInfo
   if cliOptions.showVersionFlag
     then putStrLn ("v" <> pack (Version.showVersion version))
@@ -121,8 +133,8 @@ run cliOptions = flip E.catches handlers do
       [ E.Handler ioExcept,
         E.Handler someExcept
       ]
-    ioExcept (e :: E.IOException) = print e >> return 1
-    someExcept (e :: E.SomeException) = print e >> return 1
+    ioExcept (e :: E.IOException) = dumpCrash "server crashed" (E.toException e) >> return 1
+    someExcept (e :: E.SomeException) = dumpCrash "server crashed" e >> return 1
 
 initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> LanguageContextEnv Config -> IO AppData
 initialize appLogger _startupLogger env = do
@@ -189,14 +201,21 @@ handlersWithDiagnostics =
   handlers & mapHandlers goReq goNot
   where
     goReq :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Request). Handler AppM a -> Handler AppM a
-    goReq handler = \msg responder -> do
-      handler msg responder
-      sendDiagnostics2
+    goReq handler msg responder =
+      flip withException exHandler do
+        handler msg responder
+        sendDiagnostics2
 
     goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler AppM a -> Handler AppM a
-    goNot handler = \msg -> do
-      handler msg
-      sendDiagnostics2
+    goNot handler msg = do
+      flip withException exHandler do
+        handler msg
+        sendDiagnostics2
+
+    -- Send a message to the client, but don't recover - let the LSP crash.
+    exHandler :: SomeException -> AppM ()
+    exHandler ex = do
+      Log.err ("xreferee failed:\n" <> T.pack (displayException ex))
 
 -- | Where the actual logic resides for handling requests and notifications.
 handlers :: Handlers AppM
@@ -244,3 +263,27 @@ handlers =
       let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
       whenM (Util.shouldHandleFile uri) do
         handler msg
+
+-- | Dump an exception, along with a timestamp and some context, to a crash log file on disk,
+-- and to stderr.
+dumpCrash :: Text -> E.SomeException -> IO ()
+dumpCrash context e = do
+  now <- Time.getZonedTime
+  let timestamp = Time.formatTime Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%S%Ez" now
+  let msg = "[" <> timestamp <> "] " <> unpack context <> ": " <> E.displayException e <> "\n"
+
+  -- log to stderr
+  SIO.hPutStrLn SIO.stderr msg
+
+  -- log to file
+  path <- crashLogPath
+  E.catch
+    (SIO.withFile path SIO.AppendMode \h -> SIO.hPutStrLn h msg)
+    (\(_ :: E.SomeException) -> pure ())
+  where
+    -- \| Where crash dumps are written when the LSP server crashes.
+    crashLogPath :: IO FilePath
+    crashLogPath = do
+      crashDir <- Dir.getXdgDirectory Dir.XdgCache "lsp-xreferee"
+      Dir.createDirectoryIfMissing True crashDir
+      pure $ crashDir FP.</> "crash.log"
