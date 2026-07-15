@@ -60,7 +60,7 @@ False
 -}
 isBinaryFile :: FilePath -> IO Bool
 isBinaryFile filePath = do
-  (exitCode, stdout, _) <- P.readProcessWithExitCode "git" ["ls-files", "--eol", "--others", "--cached", "--", filePath] ""
+  (exitCode, stdout, _) <- P.readProcessWithExitCode "git" ["--literal-pathspecs", "ls-files", "--eol", "--others", "--cached", "--", filePath] ""
   if stdout == ""
     then throwIO $ userError $ "isBinaryFile: File does not exist: " <> filePath
     else pure ()
