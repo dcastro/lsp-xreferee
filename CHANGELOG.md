@@ -6,7 +6,9 @@ All notable changes to this project will be documented in this file.
 
 * Dump to a logfile when the server crashes.
 * Display runtime exceptions in the client.
-* Bug fix: treat paths as literal pathspecs when checking whether a file is binary via `git ls-files`
+* Bug fixes:
+  * Scan tracked & git-ignored files, see: https://github.com/brandonchinn178/xreferee/issues/27
+  * Treat paths as literal pathspecs when checking whether a file is binary via `git ls-files`
 
 ## 0.0.2
 
