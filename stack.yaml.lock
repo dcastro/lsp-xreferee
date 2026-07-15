@@ -42,7 +42,7 @@ packages:
     git: https://github.com/dcastro/ixset-typed.git
 snapshots:
 - completed:
-    sha256: a8cfaae441160430cdde558cb80d4f9d60746e7417b275250e4e0af57ee14f36
-    size: 728954
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/24/33.yaml
-  original: lts-24.33
+    sha256: 0ddbaf764a0d478d4a40132b0a896af69c089ca62bfd8dedb8c43141fcc507cf
+    size: 757764
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/nightly/2026/7/13.yaml
+  original: nightly-2026-07-13
