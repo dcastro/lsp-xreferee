@@ -80,9 +80,7 @@ run cliOptions = flip E.catches handlers do
       -- Log everything to a file if the user specified a log file path, otherwise do nothing.
       fileLogger :: LogAction IO (WithSeverity Text)
       fileLogger =
-        maybeLogFileHandle
-          <&> (\logFileHandle -> LogAction $ \msg -> T.hPutStrLn logFileHandle (getMsg msg))
-          & fromMaybe mempty
+        maybe mempty (\logFileHandle -> LogAction $ \msg -> T.hPutStrLn logFileHandle (getMsg msg)) maybeLogFileHandle
 
       -- During startup, before we have a connection to the client:
       --   * Log everything to stderr
@@ -249,7 +247,7 @@ handlers =
       Handler AppM method
     filterReq handler = \msg responder -> do
       let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
-      whenM (Util.shouldHandleFile uri) do
+      whenM (Util.shouldHandleFileOrDir uri) do
         handler msg responder
 
     -- Skip the handler if we're not interested in processing events for this file
@@ -261,7 +259,7 @@ handlers =
       Handler AppM method
     filterNot handler = \msg -> do
       let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
-      whenM (Util.shouldHandleFile uri) do
+      whenM (Util.shouldHandleFileOrDir uri) do
         handler msg
 
 -- | Dump an exception, along with a timestamp and some context, to a crash log file on disk,

@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiWayIf #-}
+
 module Xreferee.Lsp.Util where
 
 import ClassyPrelude hiding (Handler)
@@ -13,6 +15,7 @@ import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Time.Clock.POSIX qualified as Time
+import GHC.IO.Exception (IOErrorType (InappropriateType))
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
@@ -227,21 +230,25 @@ timedNot handler = \req -> do
   let duration = t1 - t0
   Log.debugP ("Handled " <> tshow method <> " in") duration
 
--- | Checks whether we should ignore or process a given file.
+-- | Checks whether we should ignore or process a given file or directory.
 --
--- We ignore the `.git` folder, files ignored by git, and files outside the workspace.
+-- We ignore:
+--   * the `.git` folder
+--   * files ignored by git
+--   * paths outside the git repository
+--   * binary files
 --
--- #(ref:shouldHandleFile)
-shouldHandleFile :: Uri -> AppM Bool
-shouldHandleFile uri = do
+-- #(ref:shouldHandleFileOrDir)
+shouldHandleFileOrDir :: Uri -> AppM Bool
+shouldHandleFileOrDir uri = do
   modifyStateWithoutDiagnostics \appState -> do
-    (should, appState) <- flip runStateT appState $ shouldHandleFile' uri
+    (should, appState) <- flip runStateT appState $ shouldHandleFileOrDir' uri
     pure (appState, should)
 
 -- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
 -- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
-shouldHandleFile' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> StateT AppState m Bool
-shouldHandleFile' uri = do
+shouldHandleFileOrDir' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> StateT AppState m Bool
+shouldHandleFileOrDir' uri = do
   repoRootDir <- view repoRootDir
   appState0 <- get
   -- Check if we have this result cached from a previous check.
@@ -273,16 +280,26 @@ shouldHandleFile' uri = do
 
       pure should
 
--- | Reads a file's contents, or returns `Nothing` if the file no longer exists,
+-- | Reads a file's contents, or returns `Nothing` if the file no longer exists
+-- or is actually a directory.
 --
--- >>> isJust <$> readFileIfExists "README.md"
+-- >>> import Data.Either (isRight)
+-- >>> isRight <$> readFileIfExists "README.md"
 -- True
--- >>> isJust <$> readFileIfExists "invalid.md"
--- False
-readFileIfExists :: (MonadIO m) => FilePath -> m (Maybe LBS.ByteString)
+-- >>> readFileIfExists "invalid.md"
+-- Left RFNotExists
+-- >>> readFileIfExists "src"
+-- Left RFIsDirectory
+readFileIfExists :: (MonadIO m) => FilePath -> m (Either ReadFileError LBS.ByteString)
 readFileIfExists fp =
   liftIO $
-    (Just <$> LBS.readFile fp) `Ex.catchNoPropagate` \e@(Ex.ExceptionWithContext _ inner) ->
-      if isDoesNotExistError inner
-        then pure Nothing
-        else Ex.rethrowIO e
+    (Right <$> LBS.readFile fp) `Ex.catchNoPropagate` \e@(Ex.ExceptionWithContext _ inner) ->
+      if
+        | isDoesNotExistError inner -> pure (Left RFNotExists)
+        | ioeGetErrorType inner == InappropriateType -> pure (Left RFIsDirectory)
+        | otherwise -> Ex.rethrowIO e
+
+data ReadFileError
+  = RFNotExists
+  | RFIsDirectory
+  deriving stock (Show, Eq)
