@@ -1,6 +1,7 @@
 module Xreferee.Lsp.Util where
 
 import ClassyPrelude hiding (Handler)
+import Control.Exception qualified as Ex
 import Control.Lens hiding (Indexable, Iso)
 import Control.Monad.State (StateT, get, put, runStateT)
 import Data.ByteString.Lazy.Char8 qualified as LBS
@@ -271,3 +272,17 @@ shouldHandleFile' uri = do
         lift $ Log.debug $ "Ignoring file: " <> tshow uri
 
       pure should
+
+-- | Reads a file's contents, or returns `Nothing` if the file no longer exists,
+--
+-- >>> isJust <$> readFileIfExists "README.md"
+-- True
+-- >>> isJust <$> readFileIfExists "invalid.md"
+-- False
+readFileIfExists :: (MonadIO m) => FilePath -> m (Maybe LBS.ByteString)
+readFileIfExists fp =
+  liftIO $
+    (Just <$> LBS.readFile fp) `Ex.catchNoPropagate` \e@(Ex.ExceptionWithContext _ inner) ->
+      if isDoesNotExistError inner
+        then pure Nothing
+        else Ex.rethrowIO e

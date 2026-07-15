@@ -80,11 +80,13 @@ runHandler fileEvents = do
             -- We should ignore those events.
             whenM (isFileAndExists uri) do
               lift $ Log.debug $ "Reloading file from disk: " <> tshow uri
-              contents <- liftIO $ LBS.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
-              -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
-              -- the next time the user opens it, the version will be reset to 1.
-              let fileVersion = 1
-              modify $ Util.loadSymbolsForFile uri contents fileVersion
+              -- NOTE: the file may have been deleted between `isFileAndExists` and here, so we skip it if it's gone.
+              maybeContents <- Util.readFileIfExists (LSP.uriToFilePath uri & Maybe.fromJust)
+              forM_ maybeContents \contents -> do
+                -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
+                -- the next time the user opens it, the version will be reset to 1.
+                let fileVersion = 1
+                modify $ Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Created -> do
           -- NOTE: this is triggered when:
           --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
@@ -112,9 +114,11 @@ runHandler fileEvents = do
           forM_ paths \path -> do
             let uri = LSP.filePathToUri path
             lift $ Log.debug $ "Loading file from disk: " <> tshow path
-            contents <- liftIO $ LBS.readFile path
-            let fileVersion = 1
-            modify $ Util.loadSymbolsForFile uri contents fileVersion
+            -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
+            maybeContents <- Util.readFileIfExists path
+            forM_ maybeContents \contents -> do
+              let fileVersion = 1
+              modify $ Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Deleted -> do
           -- NOTE: We don't know whether this was a file or a directory.
           -- So we have to delete the symbols for this uri, and also delete the symbols for all files with

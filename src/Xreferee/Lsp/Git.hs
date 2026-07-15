@@ -27,7 +27,8 @@ getRepoRoot = do
 {-
 
 Checks if a file is considered binary by git.
-Throws if the file does not exist or is outside the current git repo.
+Will return `False` if the file does not exist.
+Throws if the file is outside the current git repo.
 
 Implementation:
 ===
@@ -46,6 +47,11 @@ i/      w/lf    attr/                   lsp-xreferee.prof
 i/none  w/none  attr/                   file.md
 ```
 
+WARNING: the `git ls-files` command above will not list files under `.git`.
+
+Alternative
+===
+
 Another option could be: `git grep -I --untracked --name-only -e . -- <file>`
 See: https://stackoverflow.com/a/16049363/857807
 `-I` tells git to ignore binary files.
@@ -61,9 +67,10 @@ False
 isBinaryFile :: FilePath -> IO Bool
 isBinaryFile filePath = do
   (exitCode, stdout, _) <- P.readProcessWithExitCode "git" ["--literal-pathspecs", "ls-files", "--eol", "--others", "--cached", "--", filePath] ""
-  if stdout == ""
-    then throwIO $ userError $ "isBinaryFile: File does not exist: " <> filePath
-    else pure ()
+  -- NOTE: when the file doesn't exist, git will exit with code 0 and stdout will be empty.
+  -- So the `isInfixOf` below will return False.
+  -- This was done on purpose: we don't want to throw an exception here, the file _may_ have been deleted
+  -- after the event was triggered and before we finished processing it.
   case exitCode of
     ExitSuccess -> pure $ "w/-text" `T.isInfixOf` T.pack stdout
     _ ->

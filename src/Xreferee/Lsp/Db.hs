@@ -13,7 +13,6 @@ import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import System.FilePath qualified as FP
 import Xreferee.Lsp.AppM (AppM, AppState (..), modifyState2)
-import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Orphans ()
 
 data Symbol = Symbol
