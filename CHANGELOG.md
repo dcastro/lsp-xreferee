@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 * Dump to a logfile when the server crashes.
+* Display runtime exceptions in the client.
 
 ## 0.0.2
 

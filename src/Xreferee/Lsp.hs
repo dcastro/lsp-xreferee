@@ -8,6 +8,7 @@ import Control.Lens hiding (Indexable, Iso)
 import Data.Aeson qualified as J
 import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
+import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Data.Time.Clock.POSIX qualified as Time
 import Data.Time.Format qualified as Time
@@ -200,14 +201,21 @@ handlersWithDiagnostics =
   handlers & mapHandlers goReq goNot
   where
     goReq :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Request). Handler AppM a -> Handler AppM a
-    goReq handler = \msg responder -> do
-      handler msg responder
-      sendDiagnostics2
+    goReq handler msg responder =
+      flip withException exHandler do
+        handler msg responder
+        sendDiagnostics2
 
     goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler AppM a -> Handler AppM a
-    goNot handler = \msg -> do
-      handler msg
-      sendDiagnostics2
+    goNot handler msg = do
+      flip withException exHandler do
+        handler msg
+        sendDiagnostics2
+
+    -- Send a message to the client, but don't recover - let the LSP crash.
+    exHandler :: SomeException -> AppM ()
+    exHandler ex = do
+      Log.err ("xreferee failed:\n" <> T.pack (displayException ex))
 
 -- | Where the actual logic resides for handling requests and notifications.
 handlers :: Handlers AppM
