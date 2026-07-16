@@ -220,8 +220,7 @@ handlers :: Handlers AppM
 handlers =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized $ Util.timedNot \_msg -> do
-        FileWatchers.watchRepoFiles
-        modifyState $ sendDiagnostics,
+        FileWatchers.watchRepoFiles,
       notificationHandler LSP.SMethod_TextDocumentDidOpen (Util.timedNot $ filterNot handleDidOpen),
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
