@@ -22,12 +22,14 @@ import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server (MonadLsp)
 import Language.LSP.Server qualified as LSP
+import System.Directory qualified as Dir
 import System.FilePath qualified as FP
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db (LineNum (..), Symbol (..))
 import Xreferee.Lsp.Db qualified as Db
+import Xreferee.Lsp.Git (CheckIgnoreResult (..))
 import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Symbols qualified as Symbols
@@ -232,12 +234,6 @@ timedNot handler = \req -> do
 
 -- | Checks whether we should ignore or process a given file or directory.
 --
--- We ignore:
---   * the `.git` folder
---   * files ignored by git
---   * paths outside the git repository
---   * binary files
---
 -- #(ref:shouldHandleFileOrDir)
 shouldHandleFileOrDir :: Uri -> AppM Bool
 shouldHandleFileOrDir uri = do
@@ -249,7 +245,6 @@ shouldHandleFileOrDir uri = do
 -- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
 shouldHandleFileOrDir' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> StateT AppState m Bool
 shouldHandleFileOrDir' uri = do
-  repoRootDir <- view repoRootDir
   appState0 <- get
   -- Check if we have this result cached from a previous check.
   case SM.lookup uri appState0.shouldHandleFiles of
@@ -257,28 +252,74 @@ shouldHandleFileOrDir' uri = do
     Nothing -> do
       should <- case LSP.uriToFilePath uri of
         Nothing -> pure False
-        Just fp ->
-          let fp' = FP.splitDirectories fp
-           in -- Ignore .git files
-              if ".git" `elem` fp'
-                then pure False
-                else
-                  -- If the file is outside the git repo, ignore it.
-                  if not (repoRootDir `isPrefixOf` fp')
-                    then pure False
-                    else do
-                      -- If the file is ignored by git, don't handle it.
-                      -- If the file is binary, don't handle it.
-                      ignored <- liftIO $ Git.checkIgnore fp
-                      isBinary <- liftIO $ Git.isBinaryFile fp
-                      pure $ not ignored && not isBinary
+        Just fp -> liftIO $ doShouldHandleFileOrDir fp
 
+      -- Update the cache
       put $ appState0 {shouldHandleFiles = SM.insert uri should appState0.shouldHandleFiles}
 
       when (not should) do
         lift $ Log.debug $ "Ignoring file: " <> tshow uri
 
       pure should
+
+{-
+  Checks whether we should ignore or process a given file or directory.
+
+  We don't handle:
+    * Untracked & git-ignored files
+    * Binary files
+    * The ".git" folder
+    * Paths outside the git repo root
+
+  NOTE::
+    * Returns `True` if the path does not exist
+-}
+doShouldHandleFileOrDir :: FilePath -> IO Bool
+doShouldHandleFileOrDir fp = do
+  Git.checkIgnore fp >>= \case
+    UntrackedIgnored ->
+      -- If it's untracked and git-ignored, we know for sure we don't want to handle it
+      pure False
+    OutsideRepo ->
+      -- If it's outside the repo root, we know for sure we don't want to handle it
+      pure False
+    NotUntrackedIgnored -> do
+      let isInGitDir = ".git" `elem` FP.splitDirectories fp
+      if isInGitDir
+        then
+          -- `git check-ignore` will not flag the `.git` folder, so we have to check it manually
+          pure False
+        else do
+          Dir.doesDirectoryExist fp >>= \case
+            True ->
+              -- If this is a directory, we can pause here and handle it.
+              -- In fact, we don't want to run `git ls-files` on directories,
+              -- because it will (unnecessarily) recursively traverse it.
+              -- We can't use `--directory` to disable traversal because it's incompatible with `-eol`,
+              -- which we need to check whether it's a binary file.
+              pure True
+            False -> do
+              -- If it's a file, we need to check whether it's a binary file
+              Git.lsFiles fp >>= \case
+                Nothing ->
+                  -- The file is not in this git repo
+                  pure False
+                Just stdout -> do
+                  {-
+                      When `git ls-files` is run with `--eol`, it'll print file info like this:
+
+                      ```
+                      i/      w/none  attr/                   file2.md
+                      i/      w/-text attr/                   lsp-xreferee.eventlog
+                      i/      w/lf    attr/                   lsp-xreferee.hp
+                      i/      w/lf    attr/                   lsp-xreferee.prof
+                      i/none  w/none  attr/                   file.md
+                      ```
+
+                      Binary files will be marked with `w/-text` in the output.
+                  -}
+                  let isBinary = "w/-text" `T.isInfixOf` stdout
+                  pure $ not isBinary
 
 -- | Reads a file's contents, or returns `Nothing` if the file no longer exists
 -- or is actually a directory.
