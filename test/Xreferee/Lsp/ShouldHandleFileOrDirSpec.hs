@@ -39,8 +39,9 @@ spec = describe "shouldHandleFileOrDir" $ do
         (Untracked, "dir-nonempty-untracked/a.md", "content"),
         (Tracked, "dir-nonempty-tracked/a.md", "content"),
         (Untracked, "dir-nonempty-untracked-ignored/a.md", "content"),
-        (Tracked, "dir-nonempty-tracked-ignored/a.md", "content")
+        (Tracked, "dir-nonempty-tracked-ignored/a.md", "content"),
         --
+        (Tracked, "-file.md", "")
       ]
       do
         -- tracked and ignored
@@ -111,6 +112,11 @@ spec = describe "shouldHandleFileOrDir" $ do
           check "../tracked-ignored.md" True
           check "../untracked.md" True
           check "../tracked.md" True
+
+        -- files/dirs beginning with a dash
+        check "-file.md" True
+        Dir.createDirectory "-dir"
+        check "-dir" True
   where
     check :: (HasCallStack) => String -> Bool -> IO ()
     check path expected = context path $ doShouldHandleFileOrDir path `shouldReturn` expected

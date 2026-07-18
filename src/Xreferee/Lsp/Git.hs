@@ -12,11 +12,15 @@ data CheckIgnoreResult = UntrackedIgnored | NotUntrackedIgnored | OutsideRepo
 checkIgnore :: FilePath -> IO CheckIgnoreResult
 checkIgnore filePath = do
   -- NOTE: using `P.rawSystem` was causing vscode to tell the LSP server to shut down when opening an ignored file.
-  (exitCode, _, _) <- P.readProcessWithExitCode "git" ["check-ignore", filePath] ""
-  pure $ case exitCode of
-    ExitSuccess -> UntrackedIgnored
-    ExitFailure 1 -> NotUntrackedIgnored
-    ExitFailure _ -> OutsideRepo
+  (exitCode, _, stderr) <- P.readProcessWithExitCode "git" ["check-ignore", "--", filePath] ""
+  case exitCode of
+    ExitSuccess -> pure UntrackedIgnored
+    ExitFailure 1 -> pure NotUntrackedIgnored
+    ExitFailure 128 -> pure OutsideRepo
+    ExitFailure code ->
+      throwIO $
+        userError $
+          "checkIgnore: unexpected exit code: " <> show code <> " for file '" <> filePath <> "'. stderr: " <> stderr
 
 -- | Get the root directory of the git repository.
 --
