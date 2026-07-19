@@ -78,7 +78,7 @@ insertAnchor conn anchor = do
     execute
       conn
       [sql|INSERT INTO anchors (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
-      (anchor)
+      anchor
   setDirty
 
 insertReference :: Connection -> Symbol -> AppM ()
@@ -87,7 +87,7 @@ insertReference conn reference = do
     execute
       conn
       [sql|INSERT INTO refs (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
-      (reference)
+      reference
   setDirty
 
 deleteSymbolsExcept :: Connection -> [LSP.Uri] -> AppM ()
@@ -107,7 +107,7 @@ findAnchorsWithName conn name = liftIO do
     [sql|
       SELECT name, uri, line, column_start, column_end
       FROM anchors
-      WHERE name = ?1
+      WHERE name = ?
     |]
     (Only name)
 
@@ -118,7 +118,7 @@ findReferencesWithName conn name = liftIO do
     [sql|
       SELECT name, uri, line, column_start, column_end
       FROM refs
-      WHERE name = ?1
+      WHERE name = ?
     |]
     (Only name)
 
@@ -132,10 +132,10 @@ findAnchorAtPosition conn uri lspPos = liftIO do
       [sql|
         SELECT name, uri, line, column_start, column_end
         FROM anchors
-        WHERE uri = ?1 AND line = ?2 AND column_start <= ?3 AND column_end >= ?3
+        WHERE uri = ? AND line = ? AND column_start <= ? AND column_end >= ?
         LIMIT 1
     |]
-      (uri, reqLine, reqColumn)
+      (uri, reqLine, reqColumn, reqColumn)
 
 findReferenceAtPosition :: (MonadIO m) => Connection -> LSP.Uri -> LSP.Position -> m (Maybe Symbol)
 findReferenceAtPosition conn uri lspPos = liftIO do
@@ -147,10 +147,10 @@ findReferenceAtPosition conn uri lspPos = liftIO do
       [sql|
         SELECT name, uri, line, column_start, column_end
         FROM refs
-        WHERE uri = ?1 AND line = ?2 AND column_start <= ?3 AND column_end >= ?3
+        WHERE uri = ? AND line = ? AND column_start <= ? AND column_end >= ?
         LIMIT 1
     |]
-      (uri, reqLine, reqColumn)
+      (uri, reqLine, reqColumn, reqColumn)
 
 deleteSymbolsForFile :: Connection -> LSP.Uri -> AppM ()
 deleteSymbolsForFile conn uri = do
