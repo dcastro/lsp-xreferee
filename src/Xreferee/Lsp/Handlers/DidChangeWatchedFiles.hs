@@ -118,21 +118,22 @@ runHandler fileEvents = do
           paths <- listPaths uri
           forM_ paths \path -> do
             let uri = LSP.filePathToUri path
-            Util.readFileIfExists path >>= \case
-              Left RFNotExists -> do
-                -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
-                lift $ Log.debug $ "[WARN] didChangeWatchedFiles: Created: file was deleted: " <> tshow path
-                pure ()
-              Left RFIsDirectory -> do
-                -- This should never happen, because we already filtered out directories in `listPaths`.
-                -- But just in case (e.g. the path was quickly changed from a file to a directory),
-                -- we skip it.
-                lift $ Log.debug $ "[WARN] didChangeWatchedFiles: Created: path is a directory: " <> tshow path
-                pure ()
-              Right contents -> do
-                lift $ Log.debug $ "didChangeWatchedFiles: Created: loading file from disk: " <> tshow path
-                let fileVersion = 1
-                modify $ Util.loadSymbolsForFile uri contents fileVersion
+            whenM (Util.shouldHandleFileOrDir' uri) do
+              Util.readFileIfExists path >>= \case
+                Left RFNotExists -> do
+                  -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
+                  lift $ Log.debug $ "[WARN] didChangeWatchedFiles: Created: file was deleted: " <> tshow path
+                  pure ()
+                Left RFIsDirectory -> do
+                  -- This should never happen, because we already filtered out directories in `listPaths`.
+                  -- But just in case (e.g. the path was quickly changed from a file to a directory),
+                  -- we skip it.
+                  lift $ Log.debug $ "[WARN] didChangeWatchedFiles: Created: path is a directory: " <> tshow path
+                  pure ()
+                Right contents -> do
+                  lift $ Log.debug $ "didChangeWatchedFiles: Created: loading file from disk: " <> tshow path
+                  let fileVersion = 1
+                  modify $ Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Deleted -> do
           -- NOTE: We don't know whether this was a file or a directory.
           -- So we have to delete the symbols for this uri, and also delete the symbols for all files with

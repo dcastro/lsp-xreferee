@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
   * Treat paths as literal pathspecs when checking whether a file is binary via `git ls-files`
   * Fixed race conditions when files were deleted after an event is triggered and before it's done being handled.
   * Don't follow symlinks (to match `xreferee`'s behavior)
+  * When a folder is created, individually check whether each file should be handled or ignored.
 
 ## 0.0.2
 
