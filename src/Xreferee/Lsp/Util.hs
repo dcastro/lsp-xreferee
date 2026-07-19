@@ -266,6 +266,28 @@ shouldHandleFileOrDir' uri = do
 
       pure shouldBool
 
+shouldHandleFileOrDir2 :: Uri -> AppM Bool
+shouldHandleFileOrDir2 uri = do
+  appState0 <- getState
+  -- Check if we have this result cached from a previous check.
+  case SM.lookup uri appState0.shouldHandleFiles of
+    Just should -> pure should
+    Nothing -> do
+      should <- case LSP.uriToFilePath uri of
+        Nothing -> throwIO $ userError $ "Invalid URI: " <> show uri
+        Just fp -> liftIO $ doShouldHandleFileOrDir fp
+
+      shouldBool <- case should of
+        DoHandle -> pure True
+        DontHandle reason -> do
+          Log.debug $ "Ignoring file: '" <> uri.getUri <> "' (" <> reason <> ")"
+          pure False
+
+      -- Update the cache
+      putState $ appState0 {shouldHandleFiles = SM.insert uri shouldBool appState0.shouldHandleFiles}
+
+      pure shouldBool
+
 {-
   Checks whether we should ignore or process a given file or directory.
 

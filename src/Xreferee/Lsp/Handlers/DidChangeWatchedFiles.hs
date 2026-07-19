@@ -2,7 +2,6 @@ module Xreferee.Lsp.Handlers.DidChangeWatchedFiles where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
-import Control.Monad.State (StateT, execStateT, get, modify, put)
 import Data.Maybe qualified as Maybe
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
@@ -11,8 +10,8 @@ import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import System.Directory qualified as Dir
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
-import Xreferee.Lsp.SendDiagnostics (modifyState)
 import Xreferee.Lsp.Util (ReadFileError (..))
 import Xreferee.Lsp.Util qualified as Util
 
@@ -23,10 +22,8 @@ import Xreferee.Lsp.Util qualified as Util
 handleDidChangeWatchedFiles :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeWatchedFiles = \req -> do
   Log.logNot req
-  modifyState \appState0 -> do
-    let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
-
-    flip execStateT appState0 $ runHandler fileEvents
+  let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
+  runHandler fileEvents
   where
     -- When creating a folder, sometimes we might get a "created" event for the folder,
     -- and sometimes we might get "created" events for the folder AND every file within the folder.
@@ -53,14 +50,11 @@ handleDidChangeWatchedFiles = \req -> do
 --
 -- This function continously updates the app state, without pushing diagnostics to the client.
 -- We only push diagnostics to the client after we've processed all file events.
---
--- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
--- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
-runHandler :: (MonadLsp Config m, MonadReader r m, HasAppEnv r) => [LSP.FileEvent] -> StateT AppState m ()
+runHandler :: [LSP.FileEvent] -> AppM ()
 runHandler fileEvents = do
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
-    whenM (Util.shouldHandleFileOrDir' uri) do
+    whenM (Util.shouldHandleFileOrDir2 uri) do
       case fileEvent ^. LSP.type_ of
         LSP.FileChangeType_Changed -> do
           -- NOTE: when a file is changed on disk AND is open in the editor, either:
@@ -79,19 +73,19 @@ runHandler fileEvents = do
             Util.readFileIfExists (LSP.uriToFilePath uri & Maybe.fromJust) >>= \case
               Left RFNotExists -> do
                 -- NOTE: the file may have been deleted between the event being triggered and reaching here, so we skip it if it's gone.
-                lift $ Log.debug $ "[WARN] didChangeWatchedFiles: Changed: file was deleted: " <> tshow uri
+                Log.debug $ "[WARN] didChangeWatchedFiles: Changed: file was deleted: " <> tshow uri
                 pure ()
               Left RFIsDirectory -> do
                 -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
                 -- We should ignore those events.
-                lift $ Log.debug $ "didChangeWatchedFiles: Changed: path is a directory: " <> tshow uri
+                Log.debug $ "didChangeWatchedFiles: Changed: path is a directory: " <> tshow uri
                 pure ()
               Right contents -> do
-                lift $ Log.debug $ "didChangeWatchedFiles: Changed: reloading file from disk: " <> tshow uri
+                Log.debug $ "didChangeWatchedFiles: Changed: reloading file from disk: " <> tshow uri
                 -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
                 -- the next time the user opens it, the version will be reset to 1.
                 let fileVersion = 1
-                modify $ Util.loadSymbolsForFile uri contents fileVersion
+                Util.loadSymbolsForFile2 uri contents fileVersion
         LSP.FileChangeType_Created -> do
           -- NOTE: this is triggered when:
           --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
@@ -118,30 +112,29 @@ runHandler fileEvents = do
           paths <- listPaths uri
           forM_ paths \path -> do
             let uri = LSP.filePathToUri path
-            whenM (Util.shouldHandleFileOrDir' uri) do
+            whenM (Util.shouldHandleFileOrDir2 uri) do
               Util.readFileIfExists path >>= \case
                 Left RFNotExists -> do
                   -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
-                  lift $ Log.debug $ "[WARN] didChangeWatchedFiles: Created: file was deleted: " <> tshow path
+                  Log.debug $ "[WARN] didChangeWatchedFiles: Created: file was deleted: " <> tshow path
                   pure ()
                 Left RFIsDirectory -> do
                   -- This should never happen, because we already filtered out directories in `listPaths`.
                   -- But just in case (e.g. the path was quickly changed from a file to a directory),
                   -- we skip it.
-                  lift $ Log.debug $ "[WARN] didChangeWatchedFiles: Created: path is a directory: " <> tshow path
+                  Log.debug $ "[WARN] didChangeWatchedFiles: Created: path is a directory: " <> tshow path
                   pure ()
                 Right contents -> do
-                  lift $ Log.debug $ "didChangeWatchedFiles: Created: loading file from disk: " <> tshow path
+                  Log.debug $ "didChangeWatchedFiles: Created: loading file from disk: " <> tshow path
                   let fileVersion = 1
-                  modify $ Util.loadSymbolsForFile uri contents fileVersion
+                  Util.loadSymbolsForFile2 uri contents fileVersion
         LSP.FileChangeType_Deleted -> do
           -- NOTE: We don't know whether this was a file or a directory.
           -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
           -- this uri as a prefix (in case this was a directory).
-          lift $ Log.debug $ "didChangeWatchedFiles: Deleted: Deleting symbols for file/directory: " <> tshow uri
-          appState <- get
-          appState <- lift $ Util.deleteSymbolsForFileOrDirectory uri appState
-          put appState
+          Log.debug $ "didChangeWatchedFiles: Deleted: Deleting symbols for file/directory: " <> tshow uri
+          conn <- view conn
+          Db.deleteSymbolsForFileOrDirectory conn uri
   where
     isFileOpen :: (MonadLsp Config m) => Uri -> m Bool
     isFileOpen uri = do
