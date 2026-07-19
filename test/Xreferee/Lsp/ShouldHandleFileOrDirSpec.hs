@@ -61,8 +61,9 @@ spec = describe "shouldHandleFileOrDir" $ do
         check "untracked-binary.md" False
 
         -- does not exist
-        check "non-existent.md" True
+        check "non-existent.md" False
         check "non-existent-ignored.md" False
+        check "non-existent-dir/file.md" False
 
         -- is directory (empty, untracked)
         Dir.createDirectory "dir-empty"
@@ -104,6 +105,7 @@ spec = describe "shouldHandleFileOrDir" $ do
         --  is .git folder
         check ".git" False
         check ".git/HEAD" False
+        check ".gitignore" True
 
         -- run from a subdirectory
         Dir.withCurrentDirectory "dir-nonempty-tracked" do
@@ -117,6 +119,10 @@ spec = describe "shouldHandleFileOrDir" $ do
         check "-file.md" True
         Dir.createDirectory "-dir"
         check "-dir" True
+
+        -- symlinks
+        Process.callProcess "ln" ["-s", "tracked.md", "symlink.md"]
+        check "symlink.md" False
   where
     check :: (HasCallStack) => String -> Bool -> IO ()
     check path expected = context path $ doShouldHandleFileOrDir path `shouldReturn` expected

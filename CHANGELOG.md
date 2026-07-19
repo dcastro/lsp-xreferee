@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
   * Scan tracked & git-ignored files, see: https://github.com/brandonchinn178/xreferee/issues/27
   * Treat paths as literal pathspecs when checking whether a file is binary via `git ls-files`
   * Fixed race conditions when files were deleted after an event is triggered and before it's done being handled.
+  * Don't follow symlinks (to match `xreferee`'s behavior)
 
 ## 0.0.2
 

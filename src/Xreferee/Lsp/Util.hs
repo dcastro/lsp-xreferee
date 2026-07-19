@@ -270,56 +270,72 @@ shouldHandleFileOrDir' uri = do
     * Binary files
     * The ".git" folder
     * Paths outside the git repo root
+    * Symlinks
 
-  NOTE::
-    * Returns `True` if the path does not exist
+  NOTE:
+    * Returns `False` if the path does not exist
 -}
 doShouldHandleFileOrDir :: FilePath -> IO Bool
 doShouldHandleFileOrDir fp = do
-  Git.checkIgnore fp >>= \case
-    UntrackedIgnored ->
-      -- If it's untracked and git-ignored, we know for sure we don't want to handle it
+  pathIsSymbolicLink fp >>= \case
+    Nothing ->
+      -- The path does not exist
       pure False
-    OutsideRepo ->
-      -- If it's outside the repo root, we know for sure we don't want to handle it
+    Just True ->
+      -- It's a symlink
       pure False
-    NotUntrackedIgnored -> do
-      let isInGitDir = ".git" `elem` FP.splitDirectories fp
-      if isInGitDir
-        then
-          -- `git check-ignore` will not flag the `.git` folder, so we have to check it manually
+    Just False -> do
+      Git.checkIgnore fp >>= \case
+        UntrackedIgnored ->
+          -- If it's untracked and git-ignored, we know for sure we don't want to handle it
           pure False
-        else do
-          Dir.doesDirectoryExist fp >>= \case
-            True ->
-              -- If this is a directory, we can pause here and handle it.
-              -- In fact, we don't want to run `git ls-files` on directories,
-              -- because it will (unnecessarily) recursively traverse it.
-              -- We can't use `--directory` to disable traversal because it's incompatible with `-eol`,
-              -- which we need to check whether it's a binary file.
-              pure True
-            False -> do
-              -- If it's a file, we need to check whether it's a binary file
-              Git.lsFiles fp >>= \case
-                Nothing ->
-                  -- The file is not in this git repo
-                  pure False
-                Just stdout -> do
-                  {-
-                      When `git ls-files` is run with `--eol`, it'll print file info like this:
+        OutsideRepo ->
+          -- If it's outside the repo root, we know for sure we don't want to handle it
+          pure False
+        NotUntrackedIgnored -> do
+          let isInGitDir = ".git" `elem` FP.splitDirectories fp
+          if isInGitDir
+            then
+              -- `git check-ignore` will not flag the `.git` folder, so we have to check it manually
+              pure False
+            else do
+              Dir.doesDirectoryExist fp >>= \case
+                True ->
+                  -- If this is a directory, we can pause here and handle it.
+                  -- In fact, we don't want to run `git ls-files` on directories,
+                  -- because it will (unnecessarily) recursively traverse it.
+                  -- We can't use `--directory` to disable traversal because it's incompatible with `-eol`,
+                  -- which we need to check whether it's a binary file.
+                  pure True
+                False -> do
+                  -- If it's a file, we need to check whether it's a binary file
+                  Git.lsFiles fp >>= \case
+                    Nothing ->
+                      -- The file is not in this git repo
+                      pure False
+                    Just stdout -> do
+                      {-
+                          When `git ls-files` is run with `--eol`, it'll print file info like this:
 
-                      ```
-                      i/      w/none  attr/                   file2.md
-                      i/      w/-text attr/                   lsp-xreferee.eventlog
-                      i/      w/lf    attr/                   lsp-xreferee.hp
-                      i/      w/lf    attr/                   lsp-xreferee.prof
-                      i/none  w/none  attr/                   file.md
-                      ```
+                          ```
+                          i/      w/none  attr/                   file2.md
+                          i/      w/-text attr/                   lsp-xreferee.eventlog
+                          i/      w/lf    attr/                   lsp-xreferee.hp
+                          i/      w/lf    attr/                   lsp-xreferee.prof
+                          i/none  w/none  attr/                   file.md
+                          ```
 
-                      Binary files will be marked with `w/-text` in the output.
-                  -}
-                  let isBinary = "w/-text" `T.isInfixOf` stdout
-                  pure $ not isBinary
+                          Binary files will be marked with `w/-text` in the output.
+                      -}
+                      let isBinary = "w/-text" `T.isInfixOf` stdout
+                      pure $ not isBinary
+  where
+    pathIsSymbolicLink :: FilePath -> IO (Maybe Bool)
+    pathIsSymbolicLink fp = do
+      (Just <$> Dir.pathIsSymbolicLink fp) `Ex.catchNoPropagate` \e@(Ex.ExceptionWithContext _ inner) ->
+        if isDoesNotExistError inner
+          then pure Nothing
+          else Ex.rethrowIO e
 
 -- | Reads a file's contents, or returns `Nothing` if the file no longer exists
 -- or is actually a directory.
