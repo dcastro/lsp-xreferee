@@ -100,4 +100,13 @@ tests:
       - -rtsopts
       - -with-rtsopts=-N
     dependencies:
+      - base
+      - classy-prelude
       - lsp-xreferee
+      - sydtest
+      - process
+      - directory
+      - filepath
+      - text
+    build-tools:
+      - sydtest-discover:sydtest-discover

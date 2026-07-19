@@ -1,7 +1,11 @@
+{-# LANGUAGE MultiWayIf #-}
+
 module Xreferee.Lsp.Util where
 
 import ClassyPrelude hiding (Handler)
+import Control.Exception qualified as Ex
 import Control.Lens hiding (Indexable, Iso)
+import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.State (StateT, get, put, runStateT)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.IxSet.Typed ((@+), (@<=), (@=), (@>=))
@@ -12,18 +16,21 @@ import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Time.Clock.POSIX qualified as Time
+import GHC.IO.Exception (IOErrorType (InappropriateType))
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server (MonadLsp)
 import Language.LSP.Server qualified as LSP
+import System.Directory qualified as Dir
 import System.FilePath qualified as FP
 import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db (LineNum (..), Symbol (..))
 import Xreferee.Lsp.Db qualified as Db
+import Xreferee.Lsp.Git (CheckIgnoreResult (..))
 import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Symbols qualified as Symbols
@@ -226,48 +233,153 @@ timedNot handler = \req -> do
   let duration = t1 - t0
   Log.debugP ("Handled " <> tshow method <> " in") duration
 
--- | Checks whether we should ignore or process a given file.
+-- | Checks whether we should ignore or process a given file or directory.
 --
--- We ignore the `.git` folder, files ignored by git, and files outside the workspace.
---
--- #(ref:shouldHandleFile)
-shouldHandleFile :: Uri -> AppM Bool
-shouldHandleFile uri = do
+-- #(ref:shouldHandleFileOrDir)
+shouldHandleFileOrDir :: Uri -> AppM Bool
+shouldHandleFileOrDir uri = do
   modifyStateWithoutDiagnostics \appState -> do
-    (should, appState) <- flip runStateT appState $ shouldHandleFile' uri
+    (should, appState) <- flip runStateT appState $ shouldHandleFileOrDir' uri
     pure (appState, should)
 
 -- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
 -- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
-shouldHandleFile' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> StateT AppState m Bool
-shouldHandleFile' uri = do
-  repoRootDir <- view repoRootDir
+shouldHandleFileOrDir' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> StateT AppState m Bool
+shouldHandleFileOrDir' uri = do
   appState0 <- get
   -- Check if we have this result cached from a previous check.
   case SM.lookup uri appState0.shouldHandleFiles of
     Just should -> pure should
     Nothing -> do
       should <- case LSP.uriToFilePath uri of
-        Nothing -> pure False
-        Just fp ->
-          let fp' = FP.splitDirectories fp
-           in -- Ignore .git files
-              if ".git" `elem` fp'
-                then pure False
-                else
-                  -- If the file is outside the git repo, ignore it.
-                  if not (repoRootDir `isPrefixOf` fp')
-                    then pure False
-                    else do
-                      -- If the file is ignored by git, don't handle it.
-                      -- If the file is binary, don't handle it.
-                      ignored <- liftIO $ Git.checkIgnore fp
-                      isBinary <- liftIO $ Git.isBinaryFile fp
-                      pure $ not ignored && not isBinary
+        Nothing -> throwIO $ userError $ "Invalid URI: " <> show uri
+        Just fp -> liftIO $ doShouldHandleFileOrDir fp
 
-      put $ appState0 {shouldHandleFiles = SM.insert uri should appState0.shouldHandleFiles}
+      shouldBool <- case should of
+        DoHandle -> pure True
+        DontHandle reason -> do
+          lift $ Log.debug $ "Ignoring file: '" <> uri.getUri <> "' (" <> reason <> ")"
+          pure False
 
-      when (not should) do
-        lift $ Log.debug $ "Ignoring file: " <> tshow uri
+      -- Update the cache
+      put $ appState0 {shouldHandleFiles = SM.insert uri shouldBool appState0.shouldHandleFiles}
 
-      pure should
+      pure shouldBool
+
+{-
+  Checks whether we should ignore or process a given file or directory.
+
+  We don't handle:
+    * Untracked & git-ignored files
+    * Binary files
+    * The ".git" folder
+    * Paths outside the git repo root
+    * Symlinks
+    * Paths that don't exist on disk
+-}
+doShouldHandleFileOrDir :: FilePath -> IO ShouldHandle
+doShouldHandleFileOrDir fp = do
+  result <- runExceptT do
+    checkSymlink
+    checkUntrackedIgnored
+    -- `git check-ignore` will not flag the `.git` folder, so we have to check it manually
+    checkIsInGitDir
+    checkIsBinaryFile
+
+  pure $ either id (\() -> DoHandle) result
+  where
+    checkSymlink :: ExceptT ShouldHandle IO ()
+    checkSymlink = do
+      isSymlink <-
+        liftIO $
+          (Just <$> Dir.pathIsSymbolicLink fp) `Ex.catchNoPropagate` \e@(Ex.ExceptionWithContext _ inner) ->
+            if isDoesNotExistError inner
+              then pure Nothing
+              else Ex.rethrowIO e
+      case isSymlink of
+        Nothing ->
+          throwError $ DontHandle "does not exist"
+        Just True ->
+          throwError $ DontHandle "symlink"
+        Just False ->
+          pure ()
+
+    checkUntrackedIgnored :: ExceptT ShouldHandle IO ()
+    checkUntrackedIgnored = do
+      liftIO (Git.checkIgnore fp) >>= \case
+        UntrackedIgnored ->
+          -- If it's untracked and git-ignored, we know for sure we don't want to handle it
+          throwError $ DontHandle "untracked & git-ignored"
+        OutsideRepo ->
+          -- If it's outside the repo root, we know for sure we don't want to handle it
+          throwError $ DontHandle "outside git repo"
+        NotUntrackedIgnored ->
+          pure ()
+
+    checkIsInGitDir :: ExceptT ShouldHandle IO ()
+    checkIsInGitDir = do
+      when (".git" `elem` FP.splitDirectories fp) do
+        throwError $ DontHandle "in .git dir"
+
+    checkIsBinaryFile :: ExceptT ShouldHandle IO ()
+    checkIsBinaryFile = do
+      liftIO (Dir.doesDirectoryExist fp) >>= \case
+        True ->
+          -- If this is a directory, we short-circuit here.
+          -- We don't want to run `git ls-files` on directories,
+          -- because it will (unnecessarily) recursively traverse it.
+          -- We can't use `--directory` to disable traversal because it's incompatible with `-eol`,
+          -- which we need to check whether it's a binary file.
+          pure ()
+        False -> do
+          -- If it's a file, we need to check whether it's a binary file
+          liftIO (Git.lsFiles fp) >>= \case
+            Nothing ->
+              -- The file is not in this git repo
+              throwError $ DontHandle "not in git repo"
+            Just stdout -> do
+              {-
+                  When `git ls-files` is run with `--eol`, it'll print file info like this:
+
+                  ```
+                  i/      w/none  attr/                   file2.md
+                  i/      w/-text attr/                   lsp-xreferee.eventlog
+                  i/      w/lf    attr/                   lsp-xreferee.hp
+                  i/      w/lf    attr/                   lsp-xreferee.prof
+                  i/none  w/none  attr/                   file.md
+                  ```
+
+                  Binary files will be marked with `w/-text` in the output.
+              -}
+              let isBinary = "w/-text" `T.isInfixOf` stdout
+              when isBinary do
+                throwError $ DontHandle "binary file"
+
+data ShouldHandle
+  = DoHandle
+  | DontHandle Text
+  deriving stock (Show, Eq)
+
+-- | Reads a file's contents, or returns `Nothing` if the file no longer exists
+-- or is actually a directory.
+--
+-- >>> import Data.Either (isRight)
+-- >>> isRight <$> readFileIfExists "README.md"
+-- True
+-- >>> readFileIfExists "invalid.md"
+-- Left RFNotExists
+-- >>> readFileIfExists "src"
+-- Left RFIsDirectory
+readFileIfExists :: (MonadIO m) => FilePath -> m (Either ReadFileError LBS.ByteString)
+readFileIfExists fp =
+  liftIO $
+    (Right <$> LBS.readFile fp) `Ex.catchNoPropagate` \e@(Ex.ExceptionWithContext _ inner) ->
+      if
+        | isDoesNotExistError inner -> pure (Left RFNotExists)
+        | ioeGetErrorType inner == InappropriateType -> pure (Left RFIsDirectory)
+        | otherwise -> Ex.rethrowIO e
+
+data ReadFileError
+  = RFNotExists
+  | RFIsDirectory
+  deriving stock (Show, Eq)

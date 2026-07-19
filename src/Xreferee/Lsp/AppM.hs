@@ -79,7 +79,7 @@ data AppState = AppState
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set Uri,
     fileVersions :: SM.Map Uri Int32,
-    -- | Keep track of which files are ignored, see @(ref:shouldHandleFile)
+    -- | Keep track of which files are ignored, see @(ref:shouldHandleFileOrDir)
     shouldHandleFiles :: SM.Map Uri Bool
   }
 

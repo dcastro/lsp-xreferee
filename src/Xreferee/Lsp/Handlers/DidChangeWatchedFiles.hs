@@ -3,7 +3,6 @@ module Xreferee.Lsp.Handlers.DidChangeWatchedFiles where
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Control.Monad.State (StateT, execStateT, get, modify, put)
-import Data.ByteString.Lazy qualified as LBS
 import Data.Maybe qualified as Maybe
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
@@ -14,6 +13,7 @@ import System.Directory qualified as Dir
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.SendDiagnostics (modifyState)
+import Xreferee.Lsp.Util (ReadFileError (..))
 import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles
@@ -60,7 +60,7 @@ runHandler :: (MonadLsp Config m, MonadReader r m, HasAppEnv r) => [LSP.FileEven
 runHandler fileEvents = do
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
-    whenM (Util.shouldHandleFile' uri) do
+    whenM (Util.shouldHandleFileOrDir' uri) do
       case fileEvent ^. LSP.type_ of
         LSP.FileChangeType_Changed -> do
           -- NOTE: when a file is changed on disk AND is open in the editor, either:
@@ -76,15 +76,22 @@ runHandler fileEvents = do
           -- In other words: in all situations where the file changes AND is open in the editor, we do NOT need to handle this event.
           --  I.e., we only care about this event if the file is NOT open in the editor.
           whenM (not <$> lift (isFileOpen uri)) do
-            -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
-            -- We should ignore those events.
-            whenM (isFileAndExists uri) do
-              lift $ Log.debug $ "Reloading file from disk: " <> tshow uri
-              contents <- liftIO $ LBS.readFile (LSP.uriToFilePath uri & Maybe.fromJust)
-              -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
-              -- the next time the user opens it, the version will be reset to 1.
-              let fileVersion = 1
-              modify $ Util.loadSymbolsForFile uri contents fileVersion
+            Util.readFileIfExists (LSP.uriToFilePath uri & Maybe.fromJust) >>= \case
+              Left RFNotExists -> do
+                -- NOTE: the file may have been deleted between the event being triggered and reaching here, so we skip it if it's gone.
+                lift $ Log.debug $ "[WARN] didChangeWatchedFiles: Changed: file was deleted: " <> tshow uri
+                pure ()
+              Left RFIsDirectory -> do
+                -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
+                -- We should ignore those events.
+                lift $ Log.debug $ "didChangeWatchedFiles: Changed: path is a directory: " <> tshow uri
+                pure ()
+              Right contents -> do
+                lift $ Log.debug $ "didChangeWatchedFiles: Changed: reloading file from disk: " <> tshow uri
+                -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
+                -- the next time the user opens it, the version will be reset to 1.
+                let fileVersion = 1
+                modify $ Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Created -> do
           -- NOTE: this is triggered when:
           --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
@@ -111,15 +118,27 @@ runHandler fileEvents = do
           paths <- listPaths uri
           forM_ paths \path -> do
             let uri = LSP.filePathToUri path
-            lift $ Log.debug $ "Loading file from disk: " <> tshow path
-            contents <- liftIO $ LBS.readFile path
-            let fileVersion = 1
-            modify $ Util.loadSymbolsForFile uri contents fileVersion
+            whenM (Util.shouldHandleFileOrDir' uri) do
+              Util.readFileIfExists path >>= \case
+                Left RFNotExists -> do
+                  -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
+                  lift $ Log.debug $ "[WARN] didChangeWatchedFiles: Created: file was deleted: " <> tshow path
+                  pure ()
+                Left RFIsDirectory -> do
+                  -- This should never happen, because we already filtered out directories in `listPaths`.
+                  -- But just in case (e.g. the path was quickly changed from a file to a directory),
+                  -- we skip it.
+                  lift $ Log.debug $ "[WARN] didChangeWatchedFiles: Created: path is a directory: " <> tshow path
+                  pure ()
+                Right contents -> do
+                  lift $ Log.debug $ "didChangeWatchedFiles: Created: loading file from disk: " <> tshow path
+                  let fileVersion = 1
+                  modify $ Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Deleted -> do
           -- NOTE: We don't know whether this was a file or a directory.
           -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
           -- this uri as a prefix (in case this was a directory).
-          lift $ Log.debug $ "Deleting symbols for file/directory: " <> tshow uri
+          lift $ Log.debug $ "didChangeWatchedFiles: Deleted: Deleting symbols for file/directory: " <> tshow uri
           appState <- get
           appState <- lift $ Util.deleteSymbolsForFileOrDirectory uri appState
           put appState
@@ -128,12 +147,6 @@ runHandler fileEvents = do
     isFileOpen uri = do
       vf <- getVirtualFile (LSP.toNormalizedUri uri)
       pure $ Maybe.isJust vf
-
-    isFileAndExists :: (MonadIO m) => Uri -> m Bool
-    isFileAndExists uri =
-      case LSP.uriToFilePath uri of
-        Nothing -> pure False
-        Just fp -> liftIO $ Dir.doesFileExist fp
 
     -- If this path points to a file, return it.
     -- If it points to a directory, traverse the directory and return all files within it.

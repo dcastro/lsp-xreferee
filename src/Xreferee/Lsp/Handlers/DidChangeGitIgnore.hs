@@ -49,7 +49,7 @@ reloadAllSymbols = do
             isDbDirty = True
           }
 
-    flip execStateT appState $ overlayOpenFiles
+    execStateT overlayOpenFiles appState
 
 -- | For files that are currently open in the editor, we want to keep their symbols in the index,
 -- because they might have unsaved changes.
@@ -57,12 +57,12 @@ overlayOpenFiles :: (MonadLsp c m, MonadReader r m, HasAppEnv r) => StateT AppSt
 overlayOpenFiles = do
   -- Get only the "open" files from the virtual file system.
   -- Use an indexed optic to carry and preserve the map's keys.
-  vfs <- lift $ LSP.getVirtualFiles
+  vfs <- lift LSP.getVirtualFiles
   let openFiles = vfs ^@.. VFS.vfsMap . itraversed . VFS._Open
 
   forM_ openFiles \(normalizedUri, vfile) -> do
     let fileVersion = VFS.virtualFileVersion vfile
     let uri = LFS.fromNormalizedUri normalizedUri
     let contents = VFS.virtualFileText vfile & encodeUtf8
-    whenM (Util.shouldHandleFile' uri) do
+    whenM (Util.shouldHandleFileOrDir' uri) do
       modify $ Util.loadSymbolsForFile uri (LBS.fromStrict contents) fileVersion
