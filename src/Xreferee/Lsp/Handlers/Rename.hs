@@ -2,10 +2,7 @@ module Xreferee.Lsp.Handlers.Rename where
 
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
-import Data.IxSet.Typed ((@=))
-import Data.IxSet.Typed qualified as Ix
 import Data.Map qualified as Map
-import Data.Set qualified as Set
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
@@ -13,55 +10,55 @@ import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
-import Xreferee.Lsp.Types (SymbolEntry (..), Symbols (..))
 import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename
 handleRename :: Handler AppM 'LSP.Method_TextDocumentRename
-handleRename = \req responder -> do
+handleRename req responder = do
   Log.logReq req
 
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position
   let newLabelName = req ^. LSP.params . LSP.newName
 
-  state <- getState
-
-  let maybeMatch = case (Util.findSymbolAtPosition uri pos state.symbols.anchors, Util.findSymbolAtPosition uri pos state.symbols.references) of
-        (Just anchorEntry, _) -> Just $ X.getLabel anchorEntry.symbol
-        (_, Just refEntry) -> Just $ X.getLabel refEntry.symbol
-        (Nothing, Nothing) -> Nothing
+  conn <- view conn
+  maybeMatch <-
+    Db.findAnchorAtPosition conn uri pos >>= \case
+      Just symbol -> pure (Just symbol)
+      Nothing -> Db.findReferenceAtPosition conn uri pos
 
   case maybeMatch of
     Nothing -> responder $ Right $ LSP.InR LSP.Null
-    Just label -> do
-      let anchor = X.Anchor label
-      let ref = X.Reference label
-
+    Just symbol -> do
+      matchingAnchors <- Db.findAnchorsWithName conn symbol.name
       let anchorEdits :: Map Uri [LSP.TextEdit] =
-            state.symbols.anchors
-              @= anchor
-              & Ix.groupBy' @Uri
-              <&> \entries ->
-                Set.toList entries
-                  <&> \entry ->
-                    LSP.TextEdit
-                      { _range = Util.symbolLocToLspRange entry.loc,
-                        _newText = newLabelName & X.Anchor & X.renderLabel X.defaultDelims
-                      }
+            matchingAnchors
+              <&> ( \anchor ->
+                      ( anchor.uri,
+                        [ LSP.TextEdit
+                            { _range = Util.symbolLocToLspRange2 anchor,
+                              _newText = newLabelName & X.Anchor & X.renderLabel X.defaultDelims
+                            }
+                        ]
+                      )
+                  )
+              & Map.fromListWith (<>)
 
+      matchingRefs <- Db.findReferencesWithName conn symbol.name
       let refEdits :: Map Uri [LSP.TextEdit] =
-            state.symbols.references
-              @= ref
-              & Ix.groupBy' @Uri
-              <&> \entries ->
-                Set.toList entries
-                  <&> \entry ->
-                    LSP.TextEdit
-                      { _range = Util.symbolLocToLspRange entry.loc,
-                        _newText = newLabelName & X.Reference & X.renderLabel X.defaultDelims
-                      }
+            matchingRefs
+              <&> ( \ref ->
+                      ( ref.uri,
+                        [ LSP.TextEdit
+                            { _range = Util.symbolLocToLspRange2 ref,
+                              _newText = newLabelName & X.Reference & X.renderLabel X.defaultDelims
+                            }
+                        ]
+                      )
+                  )
+              & Map.fromListWith (<>)
 
       let workspaceEdit =
             LSP.WorkspaceEdit
