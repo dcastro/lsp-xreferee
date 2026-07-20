@@ -54,7 +54,7 @@ runHandler :: [LSP.FileEvent] -> AppM ()
 runHandler fileEvents = do
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
-    whenM (Util.shouldHandleFileOrDir2 uri) do
+    whenM (Util.shouldHandleFileOrDir uri) do
       case fileEvent ^. LSP.type_ of
         LSP.FileChangeType_Changed -> do
           -- NOTE: when a file is changed on disk AND is open in the editor, either:
@@ -112,7 +112,7 @@ runHandler fileEvents = do
           paths <- listPaths uri
           forM_ paths \path -> do
             let uri = LSP.filePathToUri path
-            whenM (Util.shouldHandleFileOrDir2 uri) do
+            whenM (Util.shouldHandleFileOrDir uri) do
               Util.readFileIfExists path >>= \case
                 Left RFNotExists -> do
                   -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.

@@ -6,7 +6,6 @@ import ClassyPrelude hiding (Handler)
 import Control.Exception qualified as Ex
 import Control.Lens hiding (Indexable, Iso)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
-import Control.Monad.State (StateT, get, put, runStateT)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.IxSet.Typed ((@+), (@<=), (@=), (@>=))
 import Data.IxSet.Typed qualified as Ix
@@ -238,36 +237,6 @@ timedNot handler = \req -> do
 -- #(ref:shouldHandleFileOrDir)
 shouldHandleFileOrDir :: Uri -> AppM Bool
 shouldHandleFileOrDir uri = do
-  modifyStateWithoutDiagnostics \appState -> do
-    (should, appState) <- flip runStateT appState $ shouldHandleFileOrDir' uri
-    pure (appState, should)
-
--- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
--- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
-shouldHandleFileOrDir' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> StateT AppState m Bool
-shouldHandleFileOrDir' uri = do
-  appState0 <- get
-  -- Check if we have this result cached from a previous check.
-  case SM.lookup uri appState0.shouldHandleFiles of
-    Just should -> pure should
-    Nothing -> do
-      should <- case LSP.uriToFilePath uri of
-        Nothing -> throwIO $ userError $ "Invalid URI: " <> show uri
-        Just fp -> liftIO $ doShouldHandleFileOrDir fp
-
-      shouldBool <- case should of
-        DoHandle -> pure True
-        DontHandle reason -> do
-          lift $ Log.debug $ "Ignoring file: '" <> uri.getUri <> "' (" <> reason <> ")"
-          pure False
-
-      -- Update the cache
-      put $ appState0 {shouldHandleFiles = SM.insert uri shouldBool appState0.shouldHandleFiles}
-
-      pure shouldBool
-
-shouldHandleFileOrDir2 :: Uri -> AppM Bool
-shouldHandleFileOrDir2 uri = do
   appState0 <- getState
   -- Check if we have this result cached from a previous check.
   case SM.lookup uri appState0.shouldHandleFiles of

@@ -58,7 +58,7 @@ truncateDb = do
   let openUris = vfs ^.. VFS.vfsMap . itraversed . VFS._Open . asIndex . to LFS.fromNormalizedUri
 
   -- Since .gitignore has changed, we need to re-evaluate which files we should handle.
-  openUris <- filterM Util.shouldHandleFileOrDir2 openUris
+  openUris <- filterM Util.shouldHandleFileOrDir openUris
   conn <- view conn
   Db.deleteSymbolsExcept conn openUris
 

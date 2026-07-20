@@ -13,7 +13,7 @@ import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareRename
 handlePrepareRename :: Handler AppM 'LSP.Method_TextDocumentPrepareRename
-handlePrepareRename = \req responder -> do
+handlePrepareRename req responder = do
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position
 
