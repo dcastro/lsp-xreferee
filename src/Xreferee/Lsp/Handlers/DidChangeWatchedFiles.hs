@@ -3,12 +3,14 @@ module Xreferee.Lsp.Handlers.DidChangeWatchedFiles where
 import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Data.Maybe qualified as Maybe
+import Data.Text qualified as T
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import System.Directory qualified as Dir
+import System.FilePath qualified as FP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
@@ -37,7 +39,7 @@ handleDidChangeWatchedFiles = \req -> do
             if event ^. LSP.type_ == LSP.FileChangeType_Created
               then
                 -- If we already have a "created" event for a parent directory, we can ignore this "created" event for the child file.
-                if any (\seenEvent -> seenEvent ^. LSP.type_ == LSP.FileChangeType_Created && ((event ^. LSP.uri) `Util.isWithinDir` (seenEvent ^. LSP.uri))) acc
+                if any (\seenEvent -> seenEvent ^. LSP.type_ == LSP.FileChangeType_Created && ((event ^. LSP.uri) `isWithinDir` (seenEvent ^. LSP.uri))) acc
                   then acc
                   else event : acc
               else event : acc
@@ -45,6 +47,17 @@ handleDidChangeWatchedFiles = \req -> do
         []
         events
         & reverse
+
+    -- Checks if a URI points to a file within a given directory.
+    isWithinDir :: Uri -> Uri -> Bool
+    isWithinDir file dir =
+      addTrailingPathSeparator dir.getUri `T.isPrefixOf` file.getUri
+      where
+        -- We MUST add a trailing path separator.
+        -- Otherwise, `isWithinDir ./foobar/file.md ./foo` would incorrectly be `True`.
+        addTrailingPathSeparator :: Text -> Text
+        addTrailingPathSeparator =
+          T.pack . FP.addTrailingPathSeparator . T.unpack
 
 -- | Proccess a list of file events.
 --
@@ -85,7 +98,7 @@ runHandler fileEvents = do
                 -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
                 -- the next time the user opens it, the version will be reset to 1.
                 let fileVersion = 1
-                Util.loadSymbolsForFile2 uri contents fileVersion
+                Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Created -> do
           -- NOTE: this is triggered when:
           --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
@@ -127,7 +140,7 @@ runHandler fileEvents = do
                 Right contents -> do
                   Log.debug $ "didChangeWatchedFiles: Created: loading file from disk: " <> tshow path
                   let fileVersion = 1
-                  Util.loadSymbolsForFile2 uri contents fileVersion
+                  Util.loadSymbolsForFile uri contents fileVersion
         LSP.FileChangeType_Deleted -> do
           -- NOTE: We don't know whether this was a file or a directory.
           -- So we have to delete the symbols for this uri, and also delete the symbols for all files with

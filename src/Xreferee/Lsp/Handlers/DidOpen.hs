@@ -31,7 +31,7 @@ handleDidOpen = \req -> do
 
   appState <- getState
   when (checkIfBufferIsDirty uri fileVersion appState) do
-    Util.loadSymbolsForFile2 uri contents fileVersion
+    Util.loadSymbolsForFile uri contents fileVersion
   where
     checkIfBufferIsDirty :: Uri -> Int32 -> AppState -> Bool
     checkIfBufferIsDirty uri fileVersion appState =

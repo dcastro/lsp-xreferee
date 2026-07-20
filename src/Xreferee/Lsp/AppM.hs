@@ -107,20 +107,7 @@ putState newState = do
   appData <- ask
   modifyMVar_ appData.state \_ -> pure newState
 
-modifyState2 :: (AppState -> AppState) -> AppM ()
-modifyState2 f = do
+modifyState :: (AppState -> AppState) -> AppM ()
+modifyState f = do
   appData <- ask
   modifyMVar_ appData.state \appState -> pure (f appState)
-
-----------------------------------------------------------------------------
--- Utils
-----------------------------------------------------------------------------
-
--- | Modify the app state, without sending diagnostics to the client.
--- This is useful for operations that we know won't change the symbols, and thus won't change the diagnostics
---
--- You should prefer @(ref:modifyState)
-modifyStateWithoutDiagnostics :: (AppState -> AppM (AppState, a)) -> AppM a
-modifyStateWithoutDiagnostics act = do
-  env <- ask
-  modifyMVar env.state act

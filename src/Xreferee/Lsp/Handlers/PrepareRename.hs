@@ -32,6 +32,6 @@ handlePrepareRename req responder = do
               LSP.InR $
                 LSP.InL $
                   LSP.PrepareRenamePlaceholder
-                    { _range = Util.symbolLocToLspRange2 symbol,
+                    { _range = Util.symbolLocToLspRange symbol,
                       _placeholder = symbol.name
                     }

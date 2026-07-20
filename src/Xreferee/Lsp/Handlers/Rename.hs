@@ -38,7 +38,7 @@ handleRename req responder = do
               <&> ( \anchor ->
                       ( anchor.uri,
                         [ LSP.TextEdit
-                            { _range = Util.symbolLocToLspRange2 anchor,
+                            { _range = Util.symbolLocToLspRange anchor,
                               _newText = newLabelName & X.Anchor & X.renderLabel X.defaultDelims
                             }
                         ]
@@ -52,7 +52,7 @@ handleRename req responder = do
               <&> ( \ref ->
                       ( ref.uri,
                         [ LSP.TextEdit
-                            { _range = Util.symbolLocToLspRange2 ref,
+                            { _range = Util.symbolLocToLspRange ref,
                               _newText = newLabelName & X.Reference & X.renderLabel X.defaultDelims
                             }
                         ]

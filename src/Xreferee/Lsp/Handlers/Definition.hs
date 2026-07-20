@@ -31,8 +31,8 @@ handleDefinition = \req responder -> do
       let links =
             anchors
               <&> \anchor ->
-                let refRange = Util.symbolLocToLspRange2 ref
-                    anchorRange = Util.symbolLocToLspRange2 anchor
+                let refRange = Util.symbolLocToLspRange ref
+                    anchorRange = Util.symbolLocToLspRange anchor
                  in LSP.DefinitionLink
                       LSP.LocationLink
                         { _originSelectionRange = Just refRange,

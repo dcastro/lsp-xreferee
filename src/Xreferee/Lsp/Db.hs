@@ -12,7 +12,7 @@ import Database.SQLite.Simple.ToField (ToField (..))
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import System.FilePath qualified as FP
-import Xreferee.Lsp.AppM (AppM, AppState (..), modifyState2)
+import Xreferee.Lsp.AppM (AppM, AppState (..), modifyState)
 import Xreferee.Lsp.Orphans ()
 
 data Symbol = Symbol
@@ -35,6 +35,9 @@ instance ToRow Symbol where
       toField columnStart,
       toField columnEnd
     ]
+
+instance FromRow Symbol where
+  fromRow = Symbol <$> field <*> field <*> field <*> field <*> field
 
 new :: (MonadIO m) => m Connection
 new = liftIO do
@@ -239,9 +242,6 @@ shiftSymbolsAfterLine conn uri lineNum delta = do
         (delta, uri, lineNum)
     checkDirty conn
 
-instance FromRow Symbol where
-  fromRow = Symbol <$> field <*> field <*> field <*> field <*> field
-
 ----------------------------------------------------------------------------
 -- Utils
 ----------------------------------------------------------------------------
@@ -254,4 +254,4 @@ checkDirty conn = do
 
 setDirty :: AppM ()
 setDirty = do
-  modifyState2 \appState -> appState {isDbDirty = True}
+  modifyState \appState -> appState {isDbDirty = True}

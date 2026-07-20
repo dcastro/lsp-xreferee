@@ -28,7 +28,7 @@ handleDidChangeGitIgnore = \req -> do
 reloadAllSymbols :: AppM ()
 reloadAllSymbols = do
   -- .gitignore changed, so we need to clear the `shouldHandleFiles` cache.
-  modifyState2 \appState ->
+  modifyState \appState ->
     AppState
       { symbols = appState.symbols,
         fileVersions = appState.fileVersions,

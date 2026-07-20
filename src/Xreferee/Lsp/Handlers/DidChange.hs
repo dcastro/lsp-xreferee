@@ -53,7 +53,7 @@ handleDidChange = \req -> do
       Db.insertReference conn symbol
 
   -- Update the version we have for this file.
-  modifyState2 \appState ->
+  modifyState \appState ->
     appState {fileVersions = SM.insert uri (vf ^. VFS.lsp_version) appState.fileVersions}
 
 -- | Calculates which lines we'll need to reparse after applying the given diffs.

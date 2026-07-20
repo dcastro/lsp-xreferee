@@ -12,11 +12,11 @@ import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Util qualified as Util
 
 handleReferences :: Handler AppM 'LSP.Method_TextDocumentReferences
-handleReferences = \req responder -> do
+handleReferences req responder = do
   Log.logReq req
 
-  let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
-  let reqPos = req ^. LSP.params ^. LSP.position
+  let reqUri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let reqPos = req ^. LSP.params . LSP.position
 
   conn <- view conn
 
@@ -26,5 +26,5 @@ handleReferences = \req responder -> do
     Just anchor -> do
       -- Find the corresponding references
       refs <- Db.findReferencesWithName conn anchor.name
-      let locs = refs <&> \ref -> Util.symbolLocToLspLocation2 ref
+      let locs = refs <&> \ref -> Util.symbolLocToLspLocation ref
       responder $ Right $ LSP.InL locs

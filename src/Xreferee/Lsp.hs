@@ -40,7 +40,7 @@ import Xreferee.Lsp.Handlers.References (handleReferences)
 import Xreferee.Lsp.Handlers.Rename (handleRename)
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Options qualified as LspOpt
-import Xreferee.Lsp.SendDiagnostics (sendDiagnostics2)
+import Xreferee.Lsp.SendDiagnostics (sendDiagnostics)
 import Xreferee.Lsp.Symbols qualified as Symbols
 import Xreferee.Lsp.Types qualified as Types
 import Xreferee.Lsp.Util qualified as Util
@@ -202,13 +202,13 @@ handlersWithDiagnostics =
     goReq handler msg responder =
       flip withException exHandler do
         handler msg responder
-        sendDiagnostics2
+        sendDiagnostics
 
     goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler AppM a -> Handler AppM a
     goNot handler msg = do
       flip withException exHandler do
         handler msg
-        sendDiagnostics2
+        sendDiagnostics
 
     -- Send a message to the client, but don't recover - let the LSP crash.
     exHandler :: SomeException -> AppM ()

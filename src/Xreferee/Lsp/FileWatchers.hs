@@ -13,7 +13,7 @@ import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Handlers.DidChangeGitIgnore qualified as Handlers
 import Xreferee.Lsp.Handlers.DidChangeWatchedFiles qualified as Handlers
 import Xreferee.Lsp.Log qualified as Log
-import Xreferee.Lsp.SendDiagnostics (sendDiagnostics2)
+import Xreferee.Lsp.SendDiagnostics (sendDiagnostics)
 import Xreferee.Lsp.Util qualified as Util
 
 watchRepoFiles :: AppM ()
@@ -58,7 +58,7 @@ dispatcher = \req -> do
   if any (isGitIgnore . view LSP.uri) changes
     then Handlers.handleDidChangeGitIgnore req
     else Handlers.handleDidChangeWatchedFiles req
-  sendDiagnostics2
+  sendDiagnostics
   where
     isGitIgnore :: LSP.Uri -> Bool
     isGitIgnore uri =
