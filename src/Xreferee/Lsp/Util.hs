@@ -307,8 +307,9 @@ doShouldHandleFileOrDir fp = do
     -- `git check-ignore` will not flag the `.git` folder, so we have to check it manually
     checkIsInGitDir
     checkIsBinaryFile
+    pure DoHandle
 
-  pure $ either id (\() -> DoHandle) result
+  pure $ either id id result
   where
     checkSymlink :: ExceptT ShouldHandle IO ()
     checkSymlink = do
@@ -358,7 +359,7 @@ doShouldHandleFileOrDir fp = do
           liftIO (Git.lsFiles fp) >>= \case
             Nothing ->
               -- The file is not in this git repo
-              throwError $ DontHandle "not in git repo"
+              throwError $ DontHandle "outside git repo"
             Just stdout -> do
               {-
                   When `git ls-files` is run with `--eol`, it'll print file info like this:

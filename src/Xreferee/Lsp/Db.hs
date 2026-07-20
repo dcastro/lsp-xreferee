@@ -167,8 +167,9 @@ deleteSymbolsForFileOrDirectory conn uri = do
   liftIO $ execute conn [sql|DELETE FROM refs WHERE uri LIKE ?|] [prefix <> "%"]
   checkDirty conn
   where
-    -- We MUST add a trailing path separator.
-    -- Otherwise, `isWithinDir ./foobar/file.md ./foo` would incorrectly be `True`.
+    -- We MUST add a trailing path separator to a uri like `./foo`,
+    -- otherwise, `./foobar/file.md LIKE ./foo%` would incorrectly be `True`.
+    -- Instead, the clause should be `./foobar/file.md LIKE ./foo/%`.
     addTrailingPathSeparator :: LSP.Uri -> Text
     addTrailingPathSeparator =
       T.pack . FP.addTrailingPathSeparator . T.unpack . LSP.getUri
