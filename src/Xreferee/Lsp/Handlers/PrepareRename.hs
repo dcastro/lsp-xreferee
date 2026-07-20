@@ -6,9 +6,8 @@ import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
-import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
-import Xreferee.Lsp.Types (SymbolEntry (..), Symbols (..))
+import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareRename
@@ -17,15 +16,15 @@ handlePrepareRename req responder = do
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position
 
-  state <- getState
-  let maybeMatch = case (Util.findSymbolAtPosition uri pos state.symbols.anchors, Util.findSymbolAtPosition uri pos state.symbols.references) of
-        (Just anchorEntry, _) -> Just (X.getLabel anchorEntry.symbol, anchorEntry.loc)
-        (_, Just refEntry) -> Just (X.getLabel refEntry.symbol, refEntry.loc)
-        (Nothing, Nothing) -> Nothing
+  conn <- view conn
+  maybeMatch <-
+    Db.findAnchorAtPosition conn uri pos >>= \case
+      Just symbol -> pure (Just symbol)
+      Nothing -> Db.findReferenceAtPosition conn uri pos
 
   case maybeMatch of
     Nothing -> responder $ Right $ LSP.InR LSP.Null
-    Just (symbol, loc) ->
+    Just symbol ->
       responder $
         Right $
           LSP.InL $
@@ -33,6 +32,6 @@ handlePrepareRename req responder = do
               LSP.InR $
                 LSP.InL $
                   LSP.PrepareRenamePlaceholder
-                    { _range = Util.symbolLocToLspRange loc,
-                      _placeholder = symbol
+                    { _range = Util.symbolLocToLspRange2 symbol,
+                      _placeholder = symbol.name
                     }
