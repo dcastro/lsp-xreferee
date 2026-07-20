@@ -1,0 +1,11 @@
+with-compiler: ghc-9.14.1
+packages:
+  ./
+
+source-repository-package
+  type: git
+  location: https://github.com/brandonchinn178/xreferee.git
+  tag: 9dd391904bd3ab4abb266089ba7a07d4cc724746
+
+allow-older: *
+allow-newer: *
