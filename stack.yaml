@@ -9,8 +9,6 @@ extra-deps:
 
   - git: https://github.com/brandonchinn178/xreferee.git
     commit: 9dd391904bd3ab4abb266089ba7a07d4cc724746
-  - git: https://github.com/dcastro/ixset-typed.git
-    commit: cee2074ca84b9b003b7da03f0930ad96c514c531
 
 # build:
 #   library-profiling: true

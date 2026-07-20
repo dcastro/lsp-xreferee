@@ -70,7 +70,6 @@ library:
     - text-rope
     - filepath
     - optparse-applicative
-    - ixset-typed
     - classy-prelude
     - process
     - time

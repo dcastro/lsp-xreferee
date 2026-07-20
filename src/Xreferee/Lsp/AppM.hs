@@ -11,7 +11,6 @@ import Database.SQLite.Simple (Connection)
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
 import Xreferee.Lsp.TH (classyIdRules)
-import Xreferee.Lsp.Types (Symbols)
 
 type AppM = ReaderT AppData (LspM Config)
 
@@ -73,8 +72,7 @@ getLogger AppEnv {logger} = logger
 ----------------------------------------------------------------------------
 
 data AppState = AppState
-  { symbols :: Symbols,
-    -- | True if the symbols database has been modified since the last time diagnostics were sent to the client.
+  { -- | True if the symbols database has been modified since the last time diagnostics were sent to the client.
     isDbDirty :: Bool,
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set Uri,

@@ -20,7 +20,7 @@ import Xreferee.Lsp.Util qualified as Util
 --
 -- When any `.gitignore` file changes in the repo, we need to rebuild the symbol index for all files in the repo.
 handleDidChangeGitIgnore :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
-handleDidChangeGitIgnore = \req -> do
+handleDidChangeGitIgnore req = do
   Log.logNot req
   Log.debug ".gitignore changed, reloading all symbols"
   reloadAllSymbols
@@ -30,8 +30,7 @@ reloadAllSymbols = do
   -- .gitignore changed, so we need to clear the `shouldHandleFiles` cache.
   modifyState \appState ->
     AppState
-      { symbols = appState.symbols,
-        fileVersions = appState.fileVersions,
+      { fileVersions = appState.fileVersions,
         -- Changes done to `.gitignore` invalidate the `shouldHandleFiles` cache
         shouldHandleFiles = mempty,
         filesWithDiagnostics = appState.filesWithDiagnostics,

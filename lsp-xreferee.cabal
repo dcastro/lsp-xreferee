@@ -25,7 +25,6 @@ source-repository head
 
 library
   exposed-modules:
-      Data.IxSet.Typed.Util
       Xreferee.Lsp
       Xreferee.Lsp.AppM
       Xreferee.Lsp.Db
@@ -45,7 +44,6 @@ library
       Xreferee.Lsp.SendDiagnostics
       Xreferee.Lsp.Symbols
       Xreferee.Lsp.TH
-      Xreferee.Lsp.Types
       Xreferee.Lsp.Util
   other-modules:
       Paths_lsp_xreferee
@@ -74,7 +72,6 @@ library
     , containers
     , directory
     , filepath
-    , ixset-typed
     , lens
     , lsp
     , lsp-types

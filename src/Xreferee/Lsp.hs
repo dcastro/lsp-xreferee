@@ -42,7 +42,6 @@ import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Options qualified as LspOpt
 import Xreferee.Lsp.SendDiagnostics (sendDiagnostics)
 import Xreferee.Lsp.Symbols qualified as Symbols
-import Xreferee.Lsp.Types qualified as Types
 import Xreferee.Lsp.Util qualified as Util
 
 main :: IO ()
@@ -140,20 +139,13 @@ initialize appLogger _startupLogger env = do
   conn <- Db.new
 
   repoRootDir <- Git.getRepoRoot
-  -- Front-load the evaluation of all symbols.
-  -- This work would still need to be done later anyway, when pushing diagnostics
-  -- (e.g. while handling `SMethod_Initialized`),
-  -- so it's no use keeping thunks around.
-  let !symbols = force $ Types.mkSymbols repoRootDir searchResult
-
   state <-
     newMVar
       AppState
-        { symbols,
-          filesWithDiagnostics = Set.empty,
+        { filesWithDiagnostics = Set.empty,
           fileVersions = SM.empty,
           shouldHandleFiles = SM.empty,
-          isDbDirty = True
+          isDbDirty = False
         }
   let appData =
         AppData

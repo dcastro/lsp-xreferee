@@ -15,6 +15,11 @@ import System.FilePath qualified as FP
 import Xreferee.Lsp.AppM (AppM, AppState (..), modifyState)
 import Xreferee.Lsp.Orphans ()
 
+-- | A symbol (anchor or reference), built from xreferee's `XReferee.SearchResult`, except:
+--    * We use `file://` URIs with absolute paths instead of relative file paths
+--    * 0-based line and column numbers instead of 1-based.
+--
+-- This makes it easier to work with the LSP interface.
 data Symbol = Symbol
   { name :: Text,
     uri :: LSP.Uri,

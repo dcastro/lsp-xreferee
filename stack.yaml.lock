@@ -29,17 +29,6 @@ packages:
   original:
     commit: 9dd391904bd3ab4abb266089ba7a07d4cc724746
     git: https://github.com/brandonchinn178/xreferee.git
-- completed:
-    commit: cee2074ca84b9b003b7da03f0930ad96c514c531
-    git: https://github.com/dcastro/ixset-typed.git
-    name: ixset-typed
-    pantry-tree:
-      sha256: 887fc410e9720387b29ed0b0947cd87e7aac9c0eed8aaf9c54478fc5e85b1f7d
-      size: 756
-    version: 0.5.1.0
-  original:
-    commit: cee2074ca84b9b003b7da03f0930ad96c514c531
-    git: https://github.com/dcastro/ixset-typed.git
 snapshots:
 - completed:
     sha256: 0ddbaf764a0d478d4a40132b0a896af69c089ca62bfd8dedb8c43141fcc507cf
