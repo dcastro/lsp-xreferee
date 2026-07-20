@@ -168,7 +168,7 @@ initialize appLogger _startupLogger env = do
           }
 
   runAppM appData env do
-    Symbols.insertSearchResult conn repoRootDir searchResult
+    Symbols.insertSearchResult conn repoRootDir Set.empty searchResult
 
   pure appData
 
