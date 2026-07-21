@@ -1,4 +1,4 @@
-name: Stack Build Matrix
+name: Cabal Build Matrix
 
 on:
   push:
@@ -11,6 +11,10 @@ on:
 
 permissions:
   contents: read
+
+env:
+  GHC_VERSION: "9.14.1"
+  CABAL_VERSION: "latest"
 
 jobs:
   build:
@@ -45,43 +49,73 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Haskell with Stack
+      - name: Set up Haskell with Cabal
         if: ${{ !(matrix.os == 'windows' && matrix.arch == 'arm64') }}
         uses: haskell-actions/setup@v2
         with:
-          enable-stack: true
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
 
-      # `haskell-actions/setup` is failing on Windows Arm64, so we install Stack manually as a fallback
+      # `haskell-actions/setup` (and ghcup itself) doesn't support Windows ARM64 -
+      # neither GHC nor cabal-install publish native aarch64-windows bindists either.
+      # Windows 11 on ARM transparently emulates x86_64 binaries, so as a fallback we
+      # download the official x86_64-windows bindists directly and run those instead.
       # Logs:
       # > Error: Unable to locate executable file: ghcup.
       # > Please verify either the file path exists or the file can be found within a directory specified by the PATH environment variable.
       # > Also verify the file has a valid extension for an executable file.
-      - name: Install Stack (Windows ARM64 fallback)
+      - name: Install GHC and Cabal (Windows ARM64 fallback)
         if: ${{ matrix.os == 'windows' && matrix.arch == 'arm64' }}
         shell: pwsh
+        env:
+          CABAL_FALLBACK_VERSION: "3.16.0.0" # GHC 9.14 requires cabal-install >= 3.16.0.0
         run: |
-          choco install haskell-stack --yes --no-progress
-          stack --version
+          $ghcUrl = "https://downloads.haskell.org/~ghc/${{ env.GHC_VERSION }}/ghc-${{ env.GHC_VERSION }}-x86_64-unknown-mingw32.tar.xz"
+          Invoke-WebRequest -Uri $ghcUrl -OutFile ghc.tar.xz
+          New-Item -ItemType Directory -Path C:\ghc | Out-Null
+          tar -xf ghc.tar.xz -C C:\ghc --strip-components=1
 
-      - name: Resolve Stack cache paths
-        id: stack-paths
+          $cabalUrl = "https://downloads.haskell.org/~cabal/cabal-install-$env:CABAL_FALLBACK_VERSION/cabal-install-$env:CABAL_FALLBACK_VERSION-x86_64-windows.zip"
+          Invoke-WebRequest -Uri $cabalUrl -OutFile cabal.zip
+          New-Item -ItemType Directory -Path C:\cabal | Out-Null
+          Expand-Archive -Path cabal.zip -DestinationPath C:\cabal
+
+          Add-Content -Path $env:GITHUB_PATH -Value "C:\ghc\bin"
+          Add-Content -Path $env:GITHUB_PATH -Value "C:\cabal"
+
+          $env:PATH = "C:\ghc\bin;C:\cabal;$env:PATH"
+          ghc --version
+          cabal --version
+
+      - name: Resolve Cabal cache paths
+        id: cabal-paths
         shell: pwsh
         run: |
-          $stackRoot = stack path --stack-root
-          "stack_root=$stackRoot" >> $env:GITHUB_OUTPUT
+          $cabalStore = cabal path --output-format=key-value | Select-String '^store-dir:' | ForEach-Object { $_.ToString() -replace '^store-dir:\s*', '' }
+          "cabal_store=$cabalStore" >> $env:GITHUB_OUTPUT
 
-      - name: Restore Stack cache
+      - name: Update Cabal package index
+        run: cabal update
+
+      - name: Restore Cabal cache
         uses: actions/cache@v5
         with:
           path: |
-            ${{ steps.stack-paths.outputs.stack_root }}
-            .stack-work
-          key: ${{ runner.os }}-${{ matrix.arch }}-stack-${{ hashFiles('stack.yaml', 'package.yaml', 'lsp-xreferee.cabal') }}
+            ${{ steps.cabal-paths.outputs.cabal_store }}
+            dist-newstyle
+          key: ${{ runner.os }}-${{ matrix.arch }}-cabal-${{ hashFiles('cabal.project', 'cabal.project.freeze', 'lsp-xreferee.cabal') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-stack-
+            ${{ runner.os }}-${{ matrix.arch }}-cabal-
 
-      - name: Build with Stack
-        run: stack build lsp-xreferee:exe:lsp-xreferee --ghc-options="-O2 -Werror" --copy-bins --local-bin-path dist-bin
+      - name: Build with Cabal
+        run: cabal build exe:lsp-xreferee --ghc-options="-O2 -Werror"
+
+      - name: Copy binary artifact
+        shell: bash
+        run: |
+          mkdir -p dist-bin
+          bin="$(cabal list-bin exe:lsp-xreferee)"
+          cp "$bin" dist-bin/
 
       - name: Compress binary artifact (Unix)
         if: runner.os != 'Windows'
