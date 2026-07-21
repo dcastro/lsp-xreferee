@@ -9,3 +9,8 @@ source-repository-package
 
 allow-older: *
 allow-newer: *
+
+-- Strip debug symbols, reduce the binary size from 71 MB to 42 MB.
+-- `stack install` does this by default.
+package lsp-xreferee
+  executable-stripping: True
