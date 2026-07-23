@@ -20,9 +20,11 @@ source-repository head
 
 library
   exposed-modules:
+    ExceptionUtil
     Xreferee.Lsp
     Xreferee.Lsp.AppM
     Xreferee.Lsp.Db
+    Xreferee.Lsp.Exception
     Xreferee.Lsp.FileWatchers
     Xreferee.Lsp.Git
     Xreferee.Lsp.Handlers.Definition
@@ -36,6 +38,7 @@ library
     Xreferee.Lsp.Log
     Xreferee.Lsp.Options
     Xreferee.Lsp.Orphans
+    Xreferee.Lsp.Prelude
     Xreferee.Lsp.SendDiagnostics
     Xreferee.Lsp.Symbols
     Xreferee.Lsp.TH
@@ -89,6 +92,8 @@ library
     containers,
     directory,
     filepath,
+    ghc-experimental,
+    ghc-prim,
     lens,
     lsp,
     lsp-types,
@@ -97,6 +102,7 @@ library
     pretty-simple,
     prettyprinter,
     process,
+    safe-exceptions,
     sqlite-simple,
     stm,
     template-haskell,

@@ -1,9 +1,9 @@
 module Xreferee.Lsp.Git where
 
-import ClassyPrelude
 import Data.Text qualified as T
 import System.Exit (ExitCode (..))
 import System.Process qualified as P
+import Xreferee.Lsp.Prelude
 
 data CheckIgnoreResult = UntrackedIgnored | NotUntrackedIgnored | OutsideRepo
   deriving stock (Show, Eq)
@@ -18,9 +18,14 @@ checkIgnore filePath = do
     ExitFailure 1 -> pure NotUntrackedIgnored
     ExitFailure 128 -> pure OutsideRepo
     ExitFailure code ->
-      throwIO $
-        userError $
-          "checkIgnore: unexpected exit code: " <> show code <> " for file '" <> filePath <> "'. stderr: " <> stderr
+      throwIO
+        $ userError
+        $ "checkIgnore: unexpected exit code: "
+        <> show code
+        <> " for file '"
+        <> filePath
+        <> "'. stderr: "
+        <> stderr
 
 -- | Get the root directory of the git repository.
 --

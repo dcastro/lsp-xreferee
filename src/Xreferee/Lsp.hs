@@ -1,9 +1,9 @@
 module Xreferee.Lsp where
 
-import ClassyPrelude hiding (Handler)
 import Colog.Core (LogAction (..), WithSeverity (..), (<&))
 import Colog.Core qualified as L
-import Control.Exception qualified as E
+import Control.Exception qualified as Ex
+import Control.Exception.Backtrace (BacktraceMechanism (..), setBacktraceMechanismState)
 import Control.Lens hiding (Indexable, Iso)
 import Data.Aeson qualified as J
 import Data.Map.Strict qualified as SM
@@ -40,12 +40,19 @@ import Xreferee.Lsp.Handlers.References (handleReferences)
 import Xreferee.Lsp.Handlers.Rename (handleRename)
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Options qualified as LspOpt
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.SendDiagnostics (sendDiagnostics)
 import Xreferee.Lsp.Symbols qualified as Symbols
 import Xreferee.Lsp.Util qualified as Util
 
 main :: IO ()
 main = do
+  -- Collect IPE backtraces created by `annotateCallStackIO`.
+  --
+  -- Experimental, will be included in GHC 9.16
+  -- See: https://well-typed.com/blog/2025/09/better-haskell-stack-traces/
+  setBacktraceMechanismState IPEBacktrace True
+
   -- Catch exceptions that escape threads spawned by the `lsp` library (e.g. its
   -- request-handling threads) and would otherwise just be printed to stderr and lost,
   -- since stderr isn't visible to the user when running as an LSP server.
@@ -56,12 +63,15 @@ main = do
   if cliOptions.showVersionFlag
     then putStrLn ("v" <> pack (Version.showVersion version))
     else do
-      run cliOptions >>= \case
-        0 -> exitSuccess
-        c -> exitWith . ExitFailure $ c
+      try (run cliOptions) >>= \case
+        Right 0 -> exitSuccess
+        Right c -> exitWith $ ExitFailure c
+        Left (e :: SomeException) -> do
+          dumpCrash "server crashed" e
+          exitWith $ ExitFailure 1
 
 run :: LspOpt.CliOptions -> IO Int
-run cliOptions = flip E.catches handlers do
+run cliOptions = do
   t0 <- Time.getPOSIXTime
   maybeLogFileHandle <- forM cliOptions.logFilePath \logFilePath -> do
     logFileHandle <- openFile logFilePath AppendMode
@@ -125,13 +135,6 @@ run cliOptions = flip E.catches handlers do
     stdin
     stdout
     serverDefinition
-  where
-    handlers =
-      [ E.Handler ioExcept,
-        E.Handler someExcept
-      ]
-    ioExcept (e :: E.IOException) = dumpCrash "server crashed" (E.toException e) >> return 1
-    someExcept (e :: E.SomeException) = dumpCrash "server crashed" e >> return 1
 
 initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> LanguageContextEnv Config -> IO AppData
 initialize appLogger _startupLogger env = do
@@ -174,7 +177,7 @@ syncOptions =
       LSP._change = Just LSP.TextDocumentSyncKind_Incremental,
       LSP._willSave = Just False,
       LSP._willSaveWaitUntil = Just False,
-      LSP._save = Just $ LSP.InL $ False
+      LSP._save = Just $ LSP.InL False
     }
 
 lspOptions :: Options
@@ -192,20 +195,22 @@ handlersWithDiagnostics =
   where
     goReq :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Request). Handler AppM a -> Handler AppM a
     goReq handler msg responder =
-      flip withException exHandler do
-        handler msg responder
-        sendDiagnostics
+      annotateStackStringIO (show msg._method) do
+        flip withException exHandler do
+          handler msg responder
+          sendDiagnostics
 
     goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler AppM a -> Handler AppM a
     goNot handler msg = do
-      flip withException exHandler do
-        handler msg
-        sendDiagnostics
+      annotateStackStringIO (show msg._method) do
+        flip withException exHandler do
+          handler msg
+          sendDiagnostics
 
     -- Send a message to the client, but don't recover - let the LSP crash.
     exHandler :: SomeException -> AppM ()
     exHandler ex = do
-      Log.err ("xreferee failed:\n" <> T.pack (displayException ex))
+      Log.err ("xreferee failed:\n" <> T.pack (displayFullException ex))
 
 -- | Where the actual logic resides for handling requests and notifications.
 handlers :: Handlers AppM
@@ -255,20 +260,20 @@ handlers =
 
 -- | Dump an exception, along with a timestamp and some context, to a crash log file on disk,
 -- and to stderr.
-dumpCrash :: Text -> E.SomeException -> IO ()
+dumpCrash :: Text -> SomeException -> IO ()
 dumpCrash context e = do
   now <- Time.getZonedTime
   let timestamp = Time.formatTime Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%S%Ez" now
-  let msg = "[" <> timestamp <> "] " <> unpack context <> ": " <> E.displayException e <> "\n"
+  let msg = "[" <> timestamp <> "] " <> unpack context <> ": " <> displayFullException e <> "\n"
 
   -- log to stderr
   SIO.hPutStrLn SIO.stderr msg
 
   -- log to file
   path <- crashLogPath
-  E.catch
+  Ex.catch
     (SIO.withFile path SIO.AppendMode \h -> SIO.hPutStrLn h msg)
-    (\(_ :: E.SomeException) -> pure ())
+    (\(_ :: SomeException) -> pure ())
   where
     -- \| Where crash dumps are written when the LSP server crashes.
     crashLogPath :: IO FilePath

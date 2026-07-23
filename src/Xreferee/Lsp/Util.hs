@@ -2,8 +2,6 @@
 
 module Xreferee.Lsp.Util where
 
-import ClassyPrelude hiding (Handler)
-import Control.Exception qualified as Ex
 import Control.Lens hiding (Indexable, Iso)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Data.ByteString.Lazy.Char8 qualified as LBS
@@ -25,6 +23,7 @@ import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Git (CheckIgnoreResult (..))
 import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Log qualified as Log
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Symbols qualified as Symbols
 
 -- The options we use to search for symbols using the `xreferee` package.
@@ -155,10 +154,10 @@ doShouldHandleFileOrDir fp = do
     checkSymlink = do
       isSymlink <-
         liftIO $
-          (Just <$> Dir.pathIsSymbolicLink fp) `Ex.catchNoPropagate` \e@(Ex.ExceptionWithContext _ inner) ->
+          (Just <$> Dir.pathIsSymbolicLink fp) `catchNoPropagate` \e@(ExceptionWithContext _ inner) ->
             if isDoesNotExistError inner
               then pure Nothing
-              else Ex.rethrowIO e
+              else rethrowIO e
       case isSymlink of
         Nothing ->
           throwError $ DontHandle "does not exist"
@@ -236,11 +235,11 @@ data ShouldHandle
 readFileIfExists :: (MonadIO m) => FilePath -> m (Either ReadFileError LBS.ByteString)
 readFileIfExists fp =
   liftIO $
-    (Right <$> LBS.readFile fp) `Ex.catchNoPropagate` \e@(Ex.ExceptionWithContext _ inner) ->
+    (Right <$> LBS.readFile fp) `catchNoPropagate` \e@(ExceptionWithContext _ inner) ->
       if
         | isDoesNotExistError inner -> pure (Left RFNotExists)
         | ioeGetErrorType inner == InappropriateType -> pure (Left RFIsDirectory)
-        | otherwise -> Ex.rethrowIO e
+        | otherwise -> rethrowIO e
 
 data ReadFileError
   = RFNotExists
