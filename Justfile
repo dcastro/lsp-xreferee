@@ -15,3 +15,9 @@ test-filter filter:
     watchexec --clear --restart \
       --exts hs,yaml,cabal \
       -- 'cabal test --test-options="--filter \"{{ filter }}\""'
+
+install:
+    cabal install --overwrite-policy=always
+
+format:
+    ormolu --mode inplace $(git ls-files -- '*.hs' ':!:src/ExceptionUtil.hs')
