@@ -1,23 +1,18 @@
 cabal-version: 2.2
-
--- This file has been generated from package.yaml by hpack version 0.39.6.
---
--- see: https://github.com/sol/hpack
-
-name:           lsp-xreferee
-version:        0.0.1
-description:    Please see the README on GitHub at <https://github.com/githubuser/lsp-xreferee#readme>
-homepage:       https://github.com/githubuser/lsp-xreferee#readme
-bug-reports:    https://github.com/githubuser/lsp-xreferee/issues
-author:         Author name here
-maintainer:     example@example.com
-copyright:      2026 Author name here
-license:        BSD-3-Clause
-license-file:   LICENSE
-build-type:     Simple
+name: lsp-xreferee
+version: 0.0.1
+description: Please see the README on GitHub at <https://github.com/githubuser/lsp-xreferee#readme>
+homepage: https://github.com/githubuser/lsp-xreferee#readme
+bug-reports: https://github.com/githubuser/lsp-xreferee/issues
+author: Author name here
+maintainer: example@example.com
+copyright: 2026 Author name here
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
 extra-source-files:
-    README.md
-    CHANGELOG.md
+  CHANGELOG.md
+  README.md
 
 source-repository head
   type: git
@@ -25,127 +20,203 @@ source-repository head
 
 library
   exposed-modules:
-      Xreferee.Lsp
-      Xreferee.Lsp.AppM
-      Xreferee.Lsp.Db
-      Xreferee.Lsp.FileWatchers
-      Xreferee.Lsp.Git
-      Xreferee.Lsp.Handlers.Definition
-      Xreferee.Lsp.Handlers.DidChange
-      Xreferee.Lsp.Handlers.DidChangeGitIgnore
-      Xreferee.Lsp.Handlers.DidChangeWatchedFiles
-      Xreferee.Lsp.Handlers.DidOpen
-      Xreferee.Lsp.Handlers.PrepareRename
-      Xreferee.Lsp.Handlers.References
-      Xreferee.Lsp.Handlers.Rename
-      Xreferee.Lsp.Log
-      Xreferee.Lsp.Options
-      Xreferee.Lsp.Orphans
-      Xreferee.Lsp.SendDiagnostics
-      Xreferee.Lsp.Symbols
-      Xreferee.Lsp.TH
-      Xreferee.Lsp.Util
+    Xreferee.Lsp
+    Xreferee.Lsp.AppM
+    Xreferee.Lsp.Db
+    Xreferee.Lsp.FileWatchers
+    Xreferee.Lsp.Git
+    Xreferee.Lsp.Handlers.Definition
+    Xreferee.Lsp.Handlers.DidChange
+    Xreferee.Lsp.Handlers.DidChangeGitIgnore
+    Xreferee.Lsp.Handlers.DidChangeWatchedFiles
+    Xreferee.Lsp.Handlers.DidOpen
+    Xreferee.Lsp.Handlers.PrepareRename
+    Xreferee.Lsp.Handlers.References
+    Xreferee.Lsp.Handlers.Rename
+    Xreferee.Lsp.Log
+    Xreferee.Lsp.Options
+    Xreferee.Lsp.Orphans
+    Xreferee.Lsp.SendDiagnostics
+    Xreferee.Lsp.Symbols
+    Xreferee.Lsp.TH
+    Xreferee.Lsp.Util
+
   other-modules:
-      Paths_lsp_xreferee
+    Paths_lsp_xreferee
+
   autogen-modules:
-      Paths_lsp_xreferee
+    Paths_lsp_xreferee
+
   hs-source-dirs:
-      src
+    src
+
   default-extensions:
-      GHC2024
-      DuplicateRecordFields
-      OverloadedRecordDot
-      NoFieldSelectors
-      BlockArguments
-      DeriveAnyClass
-      OverloadedStrings
-      NoImplicitPrelude
-      ImpredicativeTypes
-      StrictData
-  ghc-options: -Weverything -Wno-name-shadowing -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missing-export-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-prepositive-qualified-module -Wno-missing-safe-haskell-mode -Wno-unused-packages -Wno-missing-kind-signatures -Wno-missing-role-annotations
+    BlockArguments
+    DeriveAnyClass
+    DuplicateRecordFields
+    ImpredicativeTypes
+    NoFieldSelectors
+    NoImplicitPrelude
+    OverloadedRecordDot
+    OverloadedStrings
+    StrictData
+
+  ghc-options:
+    -Weverything
+    -Wno-name-shadowing
+    -Wno-missing-exported-signatures
+    -Wno-missing-import-lists
+    -Wno-missing-export-lists
+    -Wno-missed-specialisations
+    -Wno-all-missed-specialisations
+    -Wno-unsafe
+    -Wno-safe
+    -Wno-missing-local-signatures
+    -Wno-monomorphism-restriction
+    -Wno-implicit-prelude
+    -Wno-prepositive-qualified-module
+    -Wno-missing-safe-haskell-mode
+    -Wno-unused-packages
+    -Wno-missing-kind-signatures
+    -Wno-missing-role-annotations
+
   build-depends:
-      aeson
-    , base >=4.7 && <5
-    , bytestring
-    , classy-prelude
-    , co-log-core
-    , containers
-    , directory
-    , filepath
-    , lens
-    , lsp
-    , lsp-types
-    , mtl
-    , optparse-applicative
-    , pretty-simple
-    , prettyprinter
-    , process
-    , sqlite-simple
-    , stm
-    , template-haskell
-    , text
-    , text-rope
-    , time
-    , xreferee
-  default-language: Haskell2010
+    aeson,
+    base >=4.7 && <5,
+    bytestring,
+    classy-prelude,
+    co-log-core,
+    containers,
+    directory,
+    filepath,
+    lens,
+    lsp,
+    lsp-types,
+    mtl,
+    optparse-applicative,
+    pretty-simple,
+    prettyprinter,
+    process,
+    sqlite-simple,
+    stm,
+    template-haskell,
+    text,
+    text-rope,
+    time,
+    xreferee,
+
+  default-language: GHC2024
 
 executable lsp-xreferee
   main-is: Main.hs
   other-modules:
-      Paths_lsp_xreferee
+    Paths_lsp_xreferee
+
   autogen-modules:
-      Paths_lsp_xreferee
+    Paths_lsp_xreferee
+
   hs-source-dirs:
-      app
+    app
+
   default-extensions:
-      GHC2024
-      DuplicateRecordFields
-      OverloadedRecordDot
-      NoFieldSelectors
-      BlockArguments
-      DeriveAnyClass
-      OverloadedStrings
-      NoImplicitPrelude
-      ImpredicativeTypes
-      StrictData
-  ghc-options: -Weverything -Wno-name-shadowing -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missing-export-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-prepositive-qualified-module -Wno-missing-safe-haskell-mode -Wno-unused-packages -Wno-missing-kind-signatures -Wno-missing-role-annotations -threaded -rtsopts -with-rtsopts=-N
+    BlockArguments
+    DeriveAnyClass
+    DuplicateRecordFields
+    ImpredicativeTypes
+    NoFieldSelectors
+    NoImplicitPrelude
+    OverloadedRecordDot
+    OverloadedStrings
+    StrictData
+
+  ghc-options:
+    -- "-with-rtsopts=-N -p -hc -l-au -s/home/dc/lsp-xreferee.stats"
+    -- "-with-rtsopts=-N -hT -l-au -s/home/dc/lsp-xreferee.stats"
+    -Weverything
+    -Wno-name-shadowing
+    -Wno-missing-exported-signatures
+    -Wno-missing-import-lists
+    -Wno-missing-export-lists
+    -Wno-missed-specialisations
+    -Wno-all-missed-specialisations
+    -Wno-unsafe
+    -Wno-safe
+    -Wno-missing-local-signatures
+    -Wno-monomorphism-restriction
+    -Wno-implicit-prelude
+    -Wno-prepositive-qualified-module
+    -Wno-missing-safe-haskell-mode
+    -Wno-unused-packages
+    -Wno-missing-kind-signatures
+    -Wno-missing-role-annotations
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   build-depends:
-      base
-    , classy-prelude
-    , lsp-xreferee
-  default-language: Haskell2010
+    base,
+    classy-prelude,
+    lsp-xreferee,
+
+  default-language: GHC2024
 
 test-suite lsp-xreferee-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Xreferee.Lsp.ShouldHandleFileOrDirSpec
-      Paths_lsp_xreferee
+    Paths_lsp_xreferee
+    Xreferee.Lsp.ShouldHandleFileOrDirSpec
+
   autogen-modules:
-      Paths_lsp_xreferee
+    Paths_lsp_xreferee
+
   hs-source-dirs:
-      test
+    test
+
   default-extensions:
-      GHC2024
-      DuplicateRecordFields
-      OverloadedRecordDot
-      NoFieldSelectors
-      BlockArguments
-      DeriveAnyClass
-      OverloadedStrings
-      NoImplicitPrelude
-      ImpredicativeTypes
-      StrictData
-  ghc-options: -Weverything -Wno-name-shadowing -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missing-export-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-prepositive-qualified-module -Wno-missing-safe-haskell-mode -Wno-unused-packages -Wno-missing-kind-signatures -Wno-missing-role-annotations -threaded -rtsopts -with-rtsopts=-N
+    BlockArguments
+    DeriveAnyClass
+    DuplicateRecordFields
+    ImpredicativeTypes
+    NoFieldSelectors
+    NoImplicitPrelude
+    OverloadedRecordDot
+    OverloadedStrings
+    StrictData
+
+  ghc-options:
+    -Weverything
+    -Wno-name-shadowing
+    -Wno-missing-exported-signatures
+    -Wno-missing-import-lists
+    -Wno-missing-export-lists
+    -Wno-missed-specialisations
+    -Wno-all-missed-specialisations
+    -Wno-unsafe
+    -Wno-safe
+    -Wno-missing-local-signatures
+    -Wno-monomorphism-restriction
+    -Wno-implicit-prelude
+    -Wno-prepositive-qualified-module
+    -Wno-missing-safe-haskell-mode
+    -Wno-unused-packages
+    -Wno-missing-kind-signatures
+    -Wno-missing-role-annotations
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   build-tool-depends:
-      sydtest-discover:sydtest-discover
+    sydtest-discover:sydtest-discover
+
   build-depends:
-      base
-    , classy-prelude
-    , directory
-    , filepath
-    , lsp-xreferee
-    , process
-    , sydtest
-    , text
-  default-language: Haskell2010
+    base,
+    classy-prelude,
+    directory,
+    filepath,
+    lsp-xreferee,
+    process,
+    sydtest,
+    text,
+
+  default-language: GHC2024

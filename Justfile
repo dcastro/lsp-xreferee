@@ -5,11 +5,13 @@ default:
 # Build and install the LSP when files change, and emit a KDE notification when done
 filewatch:
     watchexec --clear --restart \
-      --exts hs,yaml \
-      -- 'xreferee && stack install --ghc-options="-O2" ; kdialog --passivepopup Done'
+      --exts hs,yaml,cabal \
+      -- 'xreferee && cabal install --ghc-options="-O2" --overwrite-policy=always ; kdialog --passivepopup Done'
 
 test:
-    stack test
+    cabal test
 
 test-filter filter:
-    stack test --fast --test-arguments='--filter "{{ filter }}"' --file-watch
+    watchexec --clear --restart \
+      --exts hs,yaml,cabal \
+      -- 'cabal test --test-options="--filter \"{{ filter }}\""'
