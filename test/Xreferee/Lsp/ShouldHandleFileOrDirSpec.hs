@@ -2,17 +2,18 @@
 
 module Xreferee.Lsp.ShouldHandleFileOrDirSpec where
 
-import ClassyPrelude
+import Control.Exception qualified as Ex
 import Control.Monad (fail)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
-import GHC.IO.Exception (ExitCode (..))
 import GHC.Stack (HasCallStack)
 import System.Directory qualified as Dir
+import System.Exit (ExitCode (..))
 import System.FilePath qualified as FP
 import System.IO qualified as IO
 import System.Process qualified as Process
 import Test.Syd
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Util (ShouldHandle (..), doShouldHandleFileOrDir)
 
 spec :: Spec
@@ -163,7 +164,7 @@ withGitRepo gitignore files action = do
       -- Run the test action
       action
   where
-    captureLogs logFile f = f `onException` (T.readFile logFile >>= putStrLn)
+    captureLogs logFile f = f `Ex.onException` (T.readFile logFile >>= putStrLn)
 
 runGit :: FilePath -> [String] -> IO ()
 runGit logFile args = do

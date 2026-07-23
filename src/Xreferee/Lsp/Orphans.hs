@@ -2,13 +2,13 @@
 
 module Xreferee.Lsp.Orphans where
 
-import ClassyPrelude
 import Data.Ix (Ix (..))
 import Data.Ix qualified as Ix
 import Database.SQLite.Simple.FromField (FromField (..))
 import Database.SQLite.Simple.ToField (ToField (..))
 import Language.LSP.Protocol.Types qualified as LSP
 import Unsafe.Coerce qualified as Unsafe
+import Xreferee.Lsp.Prelude
 
 instance Ix LSP.UInt where
   range (lo, hi) = [lo .. hi]

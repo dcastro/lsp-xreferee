@@ -1,6 +1,5 @@
 module Xreferee.Lsp.SendDiagnostics where
 
-import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Data.List qualified as List
 import Data.Map qualified as Map
@@ -11,6 +10,7 @@ import Language.LSP.Server as LSP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Util qualified as Util
 
 -- | A label that is shown next to each warning/error.
@@ -88,8 +88,9 @@ sendDiagnostics = do
                       _message = "Duplicate anchor: '" <> anchor.name <> "'",
                       _tags = Nothing,
                       _relatedInformation =
-                        Just $
-                          otherAnchors <&> \otherAnchor ->
+                        Just
+                          $ otherAnchors
+                          <&> \otherAnchor ->
                             LSP.DiagnosticRelatedInformation
                               { _location = Util.symbolLocToLspLocation otherAnchor,
                                 _message = "Duplicate definition."

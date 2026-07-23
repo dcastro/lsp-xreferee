@@ -1,6 +1,5 @@
 module Xreferee.Lsp.Symbols where
 
-import ClassyPrelude
 import Control.Monad.State (StateT, evalStateT, get, modify)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -10,6 +9,7 @@ import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM (AppM)
 import Xreferee.Lsp.Db (LineNum (..))
 import Xreferee.Lsp.Db qualified as Db
+import Xreferee.Lsp.Prelude
 
 -- | An internal cache used during `mkSymbols` to avoid repeatedly converting the same file paths to URIs.
 -- `Lsp.filePathToUri` is a relatively expensive operation.

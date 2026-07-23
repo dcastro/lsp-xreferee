@@ -1,6 +1,5 @@
 module Xreferee.Lsp.Handlers.PrepareRename where
 
-import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
@@ -8,6 +7,7 @@ import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareRename
@@ -25,13 +25,13 @@ handlePrepareRename req responder = do
   case maybeMatch of
     Nothing -> responder $ Right $ LSP.InR LSP.Null
     Just symbol ->
-      responder $
-        Right $
-          LSP.InL $
-            LSP.PrepareRenameResult $
-              LSP.InR $
-                LSP.InL $
-                  LSP.PrepareRenamePlaceholder
-                    { _range = Util.symbolLocToLspRange symbol,
-                      _placeholder = symbol.name
-                    }
+      responder
+        $ Right
+        $ LSP.InL
+        $ LSP.PrepareRenameResult
+        $ LSP.InR
+        $ LSP.InL
+        $ LSP.PrepareRenamePlaceholder
+          { _range = Util.symbolLocToLspRange symbol,
+            _placeholder = symbol.name
+          }

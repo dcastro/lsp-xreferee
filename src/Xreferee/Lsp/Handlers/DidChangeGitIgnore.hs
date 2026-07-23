@@ -1,6 +1,5 @@
 module Xreferee.Lsp.Handlers.DidChangeGitIgnore where
 
-import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Data.Set qualified as Set
 import Language.LSP.Protocol.Message qualified as LSP
@@ -13,6 +12,7 @@ import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Symbols qualified as Symbols
 import Xreferee.Lsp.Util qualified as Util
 

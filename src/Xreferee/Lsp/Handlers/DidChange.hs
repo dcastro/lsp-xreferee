@@ -1,6 +1,5 @@
 module Xreferee.Lsp.Handlers.DidChange where
 
-import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Data.Ix (inRange)
 import Data.Map.Strict qualified as SM
@@ -20,6 +19,7 @@ import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Symbols qualified as Symbols
 
 handleDidChange :: Handler AppM 'LSP.Method_TextDocumentDidChange
@@ -101,8 +101,8 @@ applyChanges conn uri diffs =
           -- Update the line numbers of anchors/refs that are after the diff
           Db.shiftSymbolsAfterLine conn uri (Db.LineNum oldLineEnd) lineDelta
 
-          pure $
-            result
+          pure
+            $ result
               { linesToParse = linesToParse1
               }
 

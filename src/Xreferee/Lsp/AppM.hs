@@ -2,7 +2,6 @@
 
 module Xreferee.Lsp.AppM where
 
-import ClassyPrelude
 import Colog.Core (LogAction (..), WithSeverity (..))
 import Control.Lens
 import Data.Aeson qualified as J
@@ -10,6 +9,7 @@ import Data.Map.Strict qualified as SM
 import Database.SQLite.Simple (Connection)
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.TH (classyIdRules)
 
 type AppM = ReaderT AppData (LspM Config)

@@ -1,6 +1,5 @@
 module Xreferee.Lsp.Handlers.Rename where
 
-import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Data.Map qualified as Map
 import Language.LSP.Protocol.Lens qualified as LSP
@@ -12,6 +11,7 @@ import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Util qualified as Util
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename

@@ -1,7 +1,7 @@
 module Xreferee.Lsp.Options where
 
-import ClassyPrelude
 import Options.Applicative qualified as Opt
+import Xreferee.Lsp.Prelude
 
 data CliOptions = CliOptions
   { showVersionFlag :: Bool,

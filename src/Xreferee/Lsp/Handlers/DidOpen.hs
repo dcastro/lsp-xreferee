@@ -1,6 +1,5 @@
 module Xreferee.Lsp.Handlers.DidOpen where
 
-import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Data.Map.Strict qualified as SM
 import Language.LSP.Protocol.Lens qualified as LSP
@@ -9,6 +8,7 @@ import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Log qualified as Log
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Util qualified as Util
 
 -- | Handle `didOpen` notifications.

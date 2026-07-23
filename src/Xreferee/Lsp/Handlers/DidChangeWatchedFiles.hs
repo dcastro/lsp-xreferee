@@ -1,6 +1,5 @@
 module Xreferee.Lsp.Handlers.DidChangeWatchedFiles where
 
-import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Data.Maybe qualified as Maybe
 import Data.Text qualified as T
@@ -14,6 +13,7 @@ import System.FilePath qualified as FP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Util (ReadFileError (..))
 import Xreferee.Lsp.Util qualified as Util
 

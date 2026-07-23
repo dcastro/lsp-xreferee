@@ -1,8 +1,8 @@
 module Xreferee.Lsp.TH where
 
-import ClassyPrelude
 import Control.Lens
 import Language.Haskell.TH qualified as TH
+import Xreferee.Lsp.Prelude
 
 -- NOTE: the built-in `classyRules` uses `underscoreNoPrefixNamer` which strips the leading underscore from the field name.
 -- Here, we're not renaming any fields.
