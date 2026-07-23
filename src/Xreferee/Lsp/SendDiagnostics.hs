@@ -88,9 +88,8 @@ sendDiagnostics = do
                       _message = "Duplicate anchor: '" <> anchor.name <> "'",
                       _tags = Nothing,
                       _relatedInformation =
-                        Just
-                          $ otherAnchors
-                          <&> \otherAnchor ->
+                        Just $
+                          otherAnchors <&> \otherAnchor ->
                             LSP.DiagnosticRelatedInformation
                               { _location = Util.symbolLocToLspLocation otherAnchor,
                                 _message = "Duplicate definition."

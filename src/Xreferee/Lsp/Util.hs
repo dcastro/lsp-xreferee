@@ -153,9 +153,8 @@ doShouldHandleFileOrDir fp = do
     checkSymlink :: ExceptT ShouldHandle IO ()
     checkSymlink = do
       isSymlink <-
-        liftIO
-          $ (Just <$> Dir.pathIsSymbolicLink fp)
-          `catchNoPropagate` \e@(ExceptionWithContext _ inner) ->
+        liftIO $
+          (Just <$> Dir.pathIsSymbolicLink fp) `catchNoPropagate` \e@(ExceptionWithContext _ inner) ->
             if isDoesNotExistError inner
               then pure Nothing
               else rethrowIO e
@@ -235,9 +234,8 @@ data ShouldHandle
 -- Left RFIsDirectory
 readFileIfExists :: (MonadIO m) => FilePath -> m (Either ReadFileError LBS.ByteString)
 readFileIfExists fp =
-  liftIO
-    $ (Right <$> LBS.readFile fp)
-    `catchNoPropagate` \e@(ExceptionWithContext _ inner) ->
+  liftIO $
+    (Right <$> LBS.readFile fp) `catchNoPropagate` \e@(ExceptionWithContext _ inner) ->
       if
         | isDoesNotExistError inner -> pure (Left RFNotExists)
         | ioeGetErrorType inner == InappropriateType -> pure (Left RFIsDirectory)

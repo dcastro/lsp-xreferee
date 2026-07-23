@@ -18,14 +18,9 @@ checkIgnore filePath = do
     ExitFailure 1 -> pure NotUntrackedIgnored
     ExitFailure 128 -> pure OutsideRepo
     ExitFailure code ->
-      throwIO
-        $ userError
-        $ "checkIgnore: unexpected exit code: "
-        <> show code
-        <> " for file '"
-        <> filePath
-        <> "'. stderr: "
-        <> stderr
+      throwIO $
+        userError $
+          "checkIgnore: unexpected exit code: " <> show code <> " for file '" <> filePath <> "'. stderr: " <> stderr
 
 -- | Get the root directory of the git repository.
 --

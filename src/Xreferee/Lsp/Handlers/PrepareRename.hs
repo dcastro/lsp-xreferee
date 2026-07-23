@@ -25,13 +25,13 @@ handlePrepareRename req responder = do
   case maybeMatch of
     Nothing -> responder $ Right $ LSP.InR LSP.Null
     Just symbol ->
-      responder
-        $ Right
-        $ LSP.InL
-        $ LSP.PrepareRenameResult
-        $ LSP.InR
-        $ LSP.InL
-        $ LSP.PrepareRenamePlaceholder
-          { _range = Util.symbolLocToLspRange symbol,
-            _placeholder = symbol.name
-          }
+      responder $
+        Right $
+          LSP.InL $
+            LSP.PrepareRenameResult $
+              LSP.InR $
+                LSP.InL $
+                  LSP.PrepareRenamePlaceholder
+                    { _range = Util.symbolLocToLspRange symbol,
+                      _placeholder = symbol.name
+                    }

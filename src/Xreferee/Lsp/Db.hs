@@ -82,8 +82,8 @@ new = liftIO do
 
 insertAnchor :: Connection -> Symbol -> AppM ()
 insertAnchor conn anchor = do
-  liftIO
-    $ execute
+  liftIO $
+    execute
       conn
       [sql|INSERT INTO anchors (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
       anchor
@@ -91,8 +91,8 @@ insertAnchor conn anchor = do
 
 insertReference :: Connection -> Symbol -> AppM ()
 insertReference conn reference = do
-  liftIO
-    $ execute
+  liftIO $
+    execute
       conn
       [sql|INSERT INTO refs (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
       reference
@@ -218,14 +218,14 @@ findDuplicateAnchors conn = liftIO do
 
 deleteSymbolsInLineRange :: Connection -> LSP.Uri -> LineNum -> LineNum -> AppM ()
 deleteSymbolsInLineRange conn uri startLine endLine = do
-  liftIO
-    $ execute
+  liftIO $
+    execute
       conn
       [sql|DELETE FROM anchors WHERE uri = ? AND line BETWEEN ? AND ?|]
       (uri, startLine, endLine)
   checkDirty conn
-  liftIO
-    $ execute
+  liftIO $
+    execute
       conn
       [sql|DELETE FROM refs WHERE uri = ? AND line BETWEEN ? AND ?|]
       (uri, startLine, endLine)
@@ -234,14 +234,14 @@ deleteSymbolsInLineRange conn uri startLine endLine = do
 shiftSymbolsAfterLine :: Connection -> LSP.Uri -> LineNum -> Int -> AppM ()
 shiftSymbolsAfterLine conn uri lineNum delta = do
   when (delta /= 0) do
-    liftIO
-      $ execute
+    liftIO $
+      execute
         conn
         [sql|UPDATE anchors SET line = line + ? WHERE uri = ? AND line > ?|]
         (delta, uri, lineNum)
     checkDirty conn
-    liftIO
-      $ execute
+    liftIO $
+      execute
         conn
         [sql|UPDATE refs SET line = line + ? WHERE uri = ? AND line > ?|]
         (delta, uri, lineNum)

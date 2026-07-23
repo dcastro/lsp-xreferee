@@ -101,8 +101,8 @@ applyChanges conn uri diffs =
           -- Update the line numbers of anchors/refs that are after the diff
           Db.shiftSymbolsAfterLine conn uri (Db.LineNum oldLineEnd) lineDelta
 
-          pure
-            $ result
+          pure $
+            result
               { linesToParse = linesToParse1
               }
 
