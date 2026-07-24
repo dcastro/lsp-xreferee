@@ -195,14 +195,14 @@ handlersWithDiagnostics =
   where
     goReq :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Request). Handler AppM a -> Handler AppM a
     goReq handler msg responder =
-      annotateStackStringIO (show msg._method) do
+      annotateStackStringIO ("Handling " <> show msg._method) do
         flip withException exHandler do
           handler msg responder
           sendDiagnostics
 
     goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler AppM a -> Handler AppM a
     goNot handler msg = do
-      annotateStackStringIO (show msg._method) do
+      annotateStackStringIO ("Handling " <> show msg._method) do
         flip withException exHandler do
           handler msg
           sendDiagnostics
@@ -243,8 +243,9 @@ handlers =
       Handler AppM method
     filterReq handler = \msg responder -> do
       let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
-      whenM (Util.shouldHandleFileOrDir uri) do
-        handler msg responder
+      annotateStackStringIO ("Handling " <> show msg._method <> " for " <> T.unpack uri.getUri) do
+        whenM (Util.shouldHandleFileOrDir uri) do
+          handler msg responder
 
     -- Skip the handler if we're not interested in processing events for this file
     filterNot ::
@@ -255,8 +256,9 @@ handlers =
       Handler AppM method
     filterNot handler = \msg -> do
       let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
-      whenM (Util.shouldHandleFileOrDir uri) do
-        handler msg
+      annotateStackStringIO ("Handling " <> show msg._method <> " for " <> T.unpack uri.getUri) do
+        whenM (Util.shouldHandleFileOrDir uri) do
+          handler msg
 
 -- | Dump an exception, along with a timestamp and some context, to a crash log file on disk,
 -- and to stderr.

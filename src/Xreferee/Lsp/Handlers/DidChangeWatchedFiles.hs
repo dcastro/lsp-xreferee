@@ -23,9 +23,10 @@ import Xreferee.Lsp.Util qualified as Util
 -- (e.g. when the user switches git branches, or the user deletes a file via the file manager).
 handleDidChangeWatchedFiles :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 handleDidChangeWatchedFiles = \req -> do
-  Log.logNot req
-  let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
-  runHandler fileEvents
+  annotateStackStringIO "handleDidChangeWatchedFiles" do
+    Log.logNot req
+    let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
+    runHandler fileEvents
   where
     -- When creating a folder, sometimes we might get a "created" event for the folder,
     -- and sometimes we might get "created" events for the folder AND every file within the folder.
@@ -67,87 +68,89 @@ runHandler :: [LSP.FileEvent] -> AppM ()
 runHandler fileEvents = do
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
-    whenM (Util.shouldHandleFileOrDir uri) do
-      case fileEvent ^. LSP.type_ of
-        LSP.FileChangeType_Changed -> do
-          -- NOTE: when a file is changed on disk AND is open in the editor, either:
-          --  * The user edited the file and saved the changes
-          --      * in which case we don't need to handle it here
-          --  * The file was changed on disk, and the editor buffer was updated as a result
-          --      * e.g. the user switched git branches
-          --      * in which case we also don't need to handle it here, because we'll receive a `didChange` notification with the new contents of the file.
-          --  * The file was changed on disk, but the editor buffer was not updated
-          --      * e.g. the user has unsaved changes in the editor and then switches branches
-          --      * The file on disk and the editor buffer are now out of sync. We prioritize the buffer, so we don't need to handle this event.
-          --
-          -- In other words: in all situations where the file changes AND is open in the editor, we do NOT need to handle this event.
-          --  I.e., we only care about this event if the file is NOT open in the editor.
-          whenM (not <$> lift (isFileOpen uri)) do
-            Util.readFileIfExists (LSP.uriToFilePath uri & Maybe.fromJust) >>= \case
-              Left RFNotExists -> do
-                -- NOTE: the file may have been deleted between the event being triggered and reaching here, so we skip it if it's gone.
-                Log.debug $ "[WARN] didChangeWatchedFiles: Changed: file was deleted: " <> tshow uri
-                pure ()
-              Left RFIsDirectory -> do
-                -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
-                -- We should ignore those events.
-                Log.debug $ "didChangeWatchedFiles: Changed: path is a directory: " <> tshow uri
-                pure ()
-              Right contents -> do
-                Log.debug $ "didChangeWatchedFiles: Changed: reloading file from disk: " <> tshow uri
-                -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
-                -- the next time the user opens it, the version will be reset to 1.
-                let fileVersion = 1
-                Util.loadSymbolsForFile uri contents fileVersion
-        LSP.FileChangeType_Created -> do
-          -- NOTE: this is triggered when:
-          --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
-          --  * a file is created outside the editor (we ONLY receive `didChangeWatchedFiles` notifications)
-          --  * a file is renamed via the editor / outside the editor (we ONLY receive `didChangeWatchedFiles` notifications).
-          --
-          -- When a file is renamed and it's open in the editor, we'll only receive 2x `didChangeWatchedFiles` (deleted & created),
-          -- We won't receive any other notifications.
-          -- For this reason, we always have to handle this event here, without checking `isFileOpen`.
-          --
-          -- The downside is that when a file is created via the editor, we'll parse it twice
-          -- (when handling `didOpen` and again here when handling `didChangeWatchedFiles`),
-          -- but that's not a big deal because the file is likely empty anyway.
-          --
-          -- NOTE ON DIRECTORIES and `Created` events:
-          --  * when a folder is created with Ctrl+V
-          --     -> we'll get a "created" event for the folder AND for every file within it.
-          --  * when a folder is deleted and then re-created with Ctrl+Z
-          --     -> we'll get a "created" event for the folder only.
-          --  * when a folder is renamed
-          --     -> we'll get a "created" event for the folder only.
-          -- Because we don't know whether we're going to receive events for the individual files,
-          -- we have to assume the worst (we won't). So we traverse the directory and load all files.
-          paths <- listPaths uri
-          forM_ paths \path -> do
-            let uri = LSP.filePathToUri path
-            whenM (Util.shouldHandleFileOrDir uri) do
-              Util.readFileIfExists path >>= \case
+    let eventType = fileEvent ^. LSP.type_
+    annotateStackStringIO ("Handling file event: " <> show eventType <> " for " <> T.unpack uri.getUri) do
+      whenM (Util.shouldHandleFileOrDir uri) do
+        case eventType of
+          LSP.FileChangeType_Changed -> do
+            -- NOTE: when a file is changed on disk AND is open in the editor, either:
+            --  * The user edited the file and saved the changes
+            --      * in which case we don't need to handle it here
+            --  * The file was changed on disk, and the editor buffer was updated as a result
+            --      * e.g. the user switched git branches
+            --      * in which case we also don't need to handle it here, because we'll receive a `didChange` notification with the new contents of the file.
+            --  * The file was changed on disk, but the editor buffer was not updated
+            --      * e.g. the user has unsaved changes in the editor and then switches branches
+            --      * The file on disk and the editor buffer are now out of sync. We prioritize the buffer, so we don't need to handle this event.
+            --
+            -- In other words: in all situations where the file changes AND is open in the editor, we do NOT need to handle this event.
+            --  I.e., we only care about this event if the file is NOT open in the editor.
+            whenM (not <$> lift (isFileOpen uri)) do
+              Util.readFileIfExists (LSP.uriToFilePath uri & Maybe.fromJust) >>= \case
                 Left RFNotExists -> do
-                  -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
-                  Log.debug $ "[WARN] didChangeWatchedFiles: Created: file was deleted: " <> tshow path
+                  -- NOTE: the file may have been deleted between the event being triggered and reaching here, so we skip it if it's gone.
+                  Log.debug $ "[WARN] didChangeWatchedFiles: Changed: file was deleted: " <> uri.getUri
                   pure ()
                 Left RFIsDirectory -> do
-                  -- This should never happen, because we already filtered out directories in `listPaths`.
-                  -- But just in case (e.g. the path was quickly changed from a file to a directory),
-                  -- we skip it.
-                  Log.debug $ "[WARN] didChangeWatchedFiles: Created: path is a directory: " <> tshow path
+                  -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
+                  -- We should ignore those events.
+                  Log.debug $ "didChangeWatchedFiles: Changed: path is a directory: " <> uri.getUri
                   pure ()
                 Right contents -> do
-                  Log.debug $ "didChangeWatchedFiles: Created: loading file from disk: " <> tshow path
+                  Log.debug $ "didChangeWatchedFiles: Changed: reloading file from disk: " <> uri.getUri
+                  -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
+                  -- the next time the user opens it, the version will be reset to 1.
                   let fileVersion = 1
                   Util.loadSymbolsForFile uri contents fileVersion
-        LSP.FileChangeType_Deleted -> do
-          -- NOTE: We don't know whether this was a file or a directory.
-          -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
-          -- this uri as a prefix (in case this was a directory).
-          Log.debug $ "didChangeWatchedFiles: Deleted: Deleting symbols for file/directory: " <> tshow uri
-          conn <- view conn
-          Db.deleteSymbolsForFileOrDirectory conn uri
+          LSP.FileChangeType_Created -> do
+            -- NOTE: this is triggered when:
+            --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
+            --  * a file is created outside the editor (we ONLY receive `didChangeWatchedFiles` notifications)
+            --  * a file is renamed via the editor / outside the editor (we ONLY receive `didChangeWatchedFiles` notifications).
+            --
+            -- When a file is renamed and it's open in the editor, we'll only receive 2x `didChangeWatchedFiles` (deleted & created),
+            -- We won't receive any other notifications.
+            -- For this reason, we always have to handle this event here, without checking `isFileOpen`.
+            --
+            -- The downside is that when a file is created via the editor, we'll parse it twice
+            -- (when handling `didOpen` and again here when handling `didChangeWatchedFiles`),
+            -- but that's not a big deal because the file is likely empty anyway.
+            --
+            -- NOTE ON DIRECTORIES and `Created` events:
+            --  * when a folder is created with Ctrl+V
+            --     -> we'll get a "created" event for the folder AND for every file within it.
+            --  * when a folder is deleted and then re-created with Ctrl+Z
+            --     -> we'll get a "created" event for the folder only.
+            --  * when a folder is renamed
+            --     -> we'll get a "created" event for the folder only.
+            -- Because we don't know whether we're going to receive events for the individual files,
+            -- we have to assume the worst (we won't). So we traverse the directory and load all files.
+            paths <- listPaths uri
+            forM_ paths \path -> do
+              let uri = LSP.filePathToUri path
+              whenM (Util.shouldHandleFileOrDir uri) do
+                Util.readFileIfExists path >>= \case
+                  Left RFNotExists -> do
+                    -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
+                    Log.debug $ "[WARN] didChangeWatchedFiles: Created: file was deleted: " <> tshow path
+                    pure ()
+                  Left RFIsDirectory -> do
+                    -- This should never happen, because we already filtered out directories in `listPaths`.
+                    -- But just in case (e.g. the path was quickly changed from a file to a directory),
+                    -- we skip it.
+                    Log.debug $ "[WARN] didChangeWatchedFiles: Created: path is a directory: " <> tshow path
+                    pure ()
+                  Right contents -> do
+                    Log.debug $ "didChangeWatchedFiles: Created: loading file from disk: " <> tshow path
+                    let fileVersion = 1
+                    Util.loadSymbolsForFile uri contents fileVersion
+          LSP.FileChangeType_Deleted -> do
+            -- NOTE: We don't know whether this was a file or a directory.
+            -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
+            -- this uri as a prefix (in case this was a directory).
+            Log.debug $ "didChangeWatchedFiles: Deleted: Deleting symbols for file/directory: " <> uri.getUri
+            conn <- view conn
+            Db.deleteSymbolsForFileOrDirectory conn uri
   where
     isFileOpen :: (MonadLsp Config m) => Uri -> m Bool
     isFileOpen uri = do

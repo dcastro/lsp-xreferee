@@ -54,11 +54,12 @@ watchRepoFiles = do
 -- file event in this batch). Otherwise we handle the events incrementally.
 dispatcher :: LSP.Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 dispatcher = \req -> do
-  let changes = req ^. LSP.params . LSP.changes
-  if any (isGitIgnore . view LSP.uri) changes
-    then Handlers.handleDidChangeGitIgnore req
-    else Handlers.handleDidChangeWatchedFiles req
-  sendDiagnostics
+  annotateStackStringIO ("Handling " <> show (req ^. LSP.method)) do
+    let changes = req ^. LSP.params . LSP.changes
+    if any (isGitIgnore . view LSP.uri) changes
+      then Handlers.handleDidChangeGitIgnore req
+      else Handlers.handleDidChangeWatchedFiles req
+    sendDiagnostics
   where
     isGitIgnore :: LSP.Uri -> Bool
     isGitIgnore uri =

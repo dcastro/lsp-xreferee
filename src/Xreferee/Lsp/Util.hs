@@ -113,7 +113,7 @@ shouldHandleFileOrDir uri = do
     Just should -> pure should
     Nothing -> do
       should <- case LSP.uriToFilePath uri of
-        Nothing -> throwIO $ userError $ "Invalid URI: " <> show uri
+        Nothing -> throwIO $ userError $ "Invalid URI: " <> T.unpack uri.getUri
         Just fp -> liftIO $ doShouldHandleFileOrDir fp
 
       shouldBool <- case should of

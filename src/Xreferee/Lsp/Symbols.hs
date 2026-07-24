@@ -11,7 +11,7 @@ import Xreferee.Lsp.Db (LineNum (..))
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Prelude
 
--- | An internal cache used during `mkSymbols` to avoid repeatedly converting the same file paths to URIs.
+-- | An internal cache used during `insertSearchResult` to avoid repeatedly converting the same file paths to URIs.
 -- `Lsp.filePathToUri` is a relatively expensive operation.
 --
 -- The `xreferee` repo was used to stress test this.
