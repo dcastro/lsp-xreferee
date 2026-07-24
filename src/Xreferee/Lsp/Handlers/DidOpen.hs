@@ -4,7 +4,6 @@ import Control.Lens hiding (Indexable, Iso)
 import Data.Map.Strict qualified as SM
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
-import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Log qualified as Log

@@ -8,7 +8,6 @@ import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map.Strict qualified as SM
 import Data.Text qualified as T
 import GHC.IO.Exception (IOErrorType (InappropriateType))
-import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
 import System.Directory qualified as Dir
 import System.FilePath qualified as FP

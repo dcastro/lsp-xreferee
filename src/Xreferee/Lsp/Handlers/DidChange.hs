@@ -11,7 +11,7 @@ import Data.Text.Mixed.Rope qualified as Rope
 import Database.SQLite.Simple (Connection)
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
-import Language.LSP.Protocol.Types (UInt, Uri)
+import Language.LSP.Protocol.Types (UInt)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import Language.LSP.VFS qualified as VFS

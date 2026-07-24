@@ -5,7 +5,6 @@ import Data.Maybe qualified as Maybe
 import Data.Text qualified as T
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
-import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import System.Directory qualified as Dir

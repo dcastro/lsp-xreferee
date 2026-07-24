@@ -66,4 +66,7 @@ import ExceptionUtil as M
   ( -- Display exception with `ExceptionContext``
     displayFullException,
   )
+import Language.LSP.Protocol.Types as M
+  ( Uri (..),
+  )
 import Xreferee.Lsp.Exception as M
