@@ -89,7 +89,14 @@ shouldHandleFileOrDir uri = do
     Just should -> pure should
     Nothing -> do
       should <- case LSP.uriToFilePath uri of
-        Nothing -> throwIO $ userError $ "Invalid URI: " <> T.unpack uri.getUri
+        -- `uriToFilePath` returns `Nothing` for any URI that doesn't map to a
+        -- filesystem path, i.e. anything whose scheme isn't `file:`. VSCode's
+        -- built-in Git extension routinely sends us events for virtual documents
+        -- under the `git:` scheme (used for diff/timeline views), and other
+        -- extensions use schemes like `untitled:` or `vscode-*`. None of these
+        -- exist on disk, so there's nothing for us to process. This is expected,
+        -- not an error, so we quietly decline to handle them rather than throwing.
+        Nothing -> pure $ DontHandle "non-file URI scheme"
         Just fp -> liftIO $ doShouldHandleFileOrDir fp
 
       shouldBool <- case should of
