@@ -89,7 +89,13 @@ run cliOptions = do
       -- Log everything to a file if the user specified a log file path, otherwise do nothing.
       fileLogger :: LogAction IO (WithSeverity Text)
       fileLogger =
-        maybe mempty (\logFileHandle -> LogAction $ \msg -> T.hPutStrLn logFileHandle (getMsg msg)) maybeLogFileHandle
+        maybe
+          mempty
+          ( \logFileHandle -> LogAction $ \msg -> do
+              msg <- withTimestamp $ getMsg msg
+              T.hPutStrLn logFileHandle msg
+          )
+          maybeLogFileHandle
 
       -- During startup, before we have a connection to the client:
       --   * Log everything to stderr
@@ -264,17 +270,15 @@ handlers =
 -- and to stderr.
 dumpCrash :: Text -> SomeException -> IO ()
 dumpCrash context e = do
-  now <- Time.getZonedTime
-  let timestamp = Time.formatTime Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%S%Ez" now
-  let msg = "[" <> timestamp <> "] " <> unpack context <> ": " <> displayFullException e <> "\n"
+  msg <- withTimestamp $ context <> ": " <> pack (displayFullException e) <> "\n"
 
   -- log to stderr
-  SIO.hPutStrLn SIO.stderr msg
+  SIO.hPutStrLn SIO.stderr (unpack msg)
 
   -- log to file
   path <- crashLogPath
   Ex.catch
-    (SIO.withFile path SIO.AppendMode \h -> SIO.hPutStrLn h msg)
+    (SIO.withFile path SIO.AppendMode \h -> T.hPutStrLn h msg)
     (\(_ :: SomeException) -> pure ())
   where
     -- \| Where crash dumps are written when the LSP server crashes.
@@ -283,3 +287,10 @@ dumpCrash context e = do
       crashDir <- Dir.getXdgDirectory Dir.XdgCache "lsp-xreferee"
       Dir.createDirectoryIfMissing True crashDir
       pure $ crashDir FP.</> "crash.log"
+
+-- | Prepend a log message with a timestamp
+withTimestamp :: Text -> IO Text
+withTimestamp msg = do
+  now <- Time.getZonedTime
+  let timestamp = pack $ Time.formatTime Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%S%Ez" now
+  pure $ "[" <> timestamp <> "] " <> msg
