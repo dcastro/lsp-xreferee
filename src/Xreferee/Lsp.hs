@@ -75,8 +75,10 @@ run cliOptions = do
   t0 <- Time.getPOSIXTime
   maybeLogFileHandle <- forM cliOptions.logFilePath \logFilePath -> do
     logFileHandle <- openFile logFilePath AppendMode
-    hSetBuffering logFileHandle NoBuffering
-    pure logFileHandle
+    -- LineBuffering flushes each line as a single write, keeping messages intact.
+    hSetBuffering logFileHandle LineBuffering
+    logFileLock <- newMVar ()
+    pure (logFileHandle, logFileLock)
 
   let stderrLogger :: LogAction IO (WithSeverity Text)
       stderrLogger = L.cmap show L.logStringStderr
@@ -91,9 +93,9 @@ run cliOptions = do
       fileLogger =
         maybe
           mempty
-          ( \logFileHandle -> LogAction $ \msg -> do
+          ( \(logFileHandle, logFileLock) -> LogAction $ \msg -> do
               msg <- withTimestamp $ getMsg msg
-              T.hPutStrLn logFileHandle msg
+              withMVar logFileLock \_ -> T.hPutStrLn logFileHandle msg
           )
           maybeLogFileHandle
 
