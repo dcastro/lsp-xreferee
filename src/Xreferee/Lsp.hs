@@ -8,7 +8,6 @@ import Control.Lens hiding (Indexable, Iso)
 import Data.Aeson qualified as J
 import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
-import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Data.Time.Clock.POSIX qualified as Time
 import Data.Time.Format qualified as Time
@@ -232,7 +231,10 @@ handlers =
       Handler AppM method
     filterReq handler = \msg responder -> do
       let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
-      annotateStackStringIO ("Handling " <> show msg._method <> " for " <> T.unpack uri.getUri) do
+
+      let logMsg = "Handling " <> tshow msg._method <> " for " <> uri.getUri
+      annotateStackStringIO (unpack logMsg) do
+        Log.debug logMsg
         whenM (Util.shouldHandleFileOrDir uri) do
           handler msg responder
 
@@ -245,7 +247,10 @@ handlers =
       Handler AppM method
     filterNot handler = \msg -> do
       let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
-      annotateStackStringIO ("Handling " <> show msg._method <> " for " <> T.unpack uri.getUri) do
+
+      let logMsg = "Handling " <> tshow msg._method <> " for " <> uri.getUri
+      annotateStackStringIO (unpack logMsg) do
+        Log.debug logMsg
         whenM (Util.shouldHandleFileOrDir uri) do
           handler msg
 
