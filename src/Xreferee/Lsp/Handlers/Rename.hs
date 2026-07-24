@@ -11,7 +11,7 @@ import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
-import Xreferee.Lsp.Util qualified as Util
+import Xreferee.Lsp.Symbols qualified as Symbols
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename
 handleRename :: Handler AppM 'LSP.Method_TextDocumentRename
@@ -37,7 +37,7 @@ handleRename req responder = do
               <&> ( \anchor ->
                       ( anchor.uri,
                         [ LSP.TextEdit
-                            { _range = Util.symbolLocToLspRange anchor,
+                            { _range = Symbols.symbolLocToLspRange anchor,
                               _newText = newLabelName & X.Anchor & X.renderLabel X.defaultDelims
                             }
                         ]
@@ -51,7 +51,7 @@ handleRename req responder = do
               <&> ( \ref ->
                       ( ref.uri,
                         [ LSP.TextEdit
-                            { _range = Util.symbolLocToLspRange ref,
+                            { _range = Symbols.symbolLocToLspRange ref,
                               _newText = newLabelName & X.Reference & X.renderLabel X.defaultDelims
                             }
                         ]

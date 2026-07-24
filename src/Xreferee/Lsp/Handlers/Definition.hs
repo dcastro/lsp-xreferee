@@ -9,7 +9,7 @@ import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
-import Xreferee.Lsp.Util qualified as Util
+import Xreferee.Lsp.Symbols qualified as Symbols
 
 handleDefinition :: Handler AppM 'LSP.Method_TextDocumentDefinition
 handleDefinition = \req responder -> do
@@ -31,8 +31,8 @@ handleDefinition = \req responder -> do
       let links =
             anchors
               <&> \anchor ->
-                let refRange = Util.symbolLocToLspRange ref
-                    anchorRange = Util.symbolLocToLspRange anchor
+                let refRange = Symbols.symbolLocToLspRange ref
+                    anchorRange = Symbols.symbolLocToLspRange anchor
                  in LSP.DefinitionLink
                       LSP.LocationLink
                         { _originSelectionRange = Just refRange,

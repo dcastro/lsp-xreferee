@@ -11,7 +11,7 @@ import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
-import Xreferee.Lsp.Util qualified as Util
+import Xreferee.Lsp.Symbols qualified as Symbols
 
 -- | A label that is shown next to each warning/error.
 diagnosticsSource :: Maybe Text
@@ -40,7 +40,7 @@ sendDiagnostics = do
             pure
               ( anchor.uri,
                 [ LSP.Diagnostic
-                    { _range = Util.symbolLocToLspRange anchor,
+                    { _range = Symbols.symbolLocToLspRange anchor,
                       _severity = Just LSP.DiagnosticSeverity_Warning,
                       _code = Nothing,
                       _codeDescription = Nothing,
@@ -58,7 +58,7 @@ sendDiagnostics = do
             pure
               ( ref.uri,
                 [ LSP.Diagnostic
-                    { _range = Util.symbolLocToLspRange ref,
+                    { _range = Symbols.symbolLocToLspRange ref,
                       _severity = Just LSP.DiagnosticSeverity_Error,
                       _code = Nothing,
                       _codeDescription = Nothing,
@@ -80,7 +80,7 @@ sendDiagnostics = do
             pure
               ( anchor.uri,
                 [ LSP.Diagnostic
-                    { _range = Util.symbolLocToLspRange anchor,
+                    { _range = Symbols.symbolLocToLspRange anchor,
                       _severity = Just LSP.DiagnosticSeverity_Error,
                       _code = Nothing,
                       _codeDescription = Nothing,
@@ -91,7 +91,7 @@ sendDiagnostics = do
                         Just $
                           otherAnchors <&> \otherAnchor ->
                             LSP.DiagnosticRelatedInformation
-                              { _location = Util.symbolLocToLspLocation otherAnchor,
+                              { _location = Symbols.symbolLocToLspLocation otherAnchor,
                                 _message = "Duplicate definition."
                               },
                       _data_ = Nothing

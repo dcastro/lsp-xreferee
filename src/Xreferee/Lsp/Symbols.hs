@@ -1,13 +1,16 @@
 module Xreferee.Lsp.Symbols where
 
+import Control.Lens hiding (Indexable, Iso)
 import Control.Monad.State (StateT, evalStateT, get, modify)
+import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map qualified as Map
+import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
 import Database.SQLite.Simple (Connection)
 import Language.LSP.Protocol.Types qualified as LSP
 import XReferee.SearchResult qualified as X
-import Xreferee.Lsp.AppM (AppM)
-import Xreferee.Lsp.Db (LineNum (..))
+import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Db (LineNum (..), Symbol (..))
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Prelude
 
@@ -47,6 +50,29 @@ insertSearchResult conn repoRootDir excludedFiles searchResult = do
           modify (Map.insert fp uri)
           pure uri
 
+-- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
+loadSymbolsForFile :: Uri -> LByteString -> Int32 -> AppM ()
+loadSymbolsForFile uri contents fileVersion = do
+  conn <- view conn
+
+  -- Delete the old symbols for this file.
+  Db.deleteSymbolsForFile conn uri
+
+  -- Parse the new symbols for this file.
+  forM_ (LBS.lines contents `zip` [0 ..]) \(line, lineNum) -> do
+    let (anchors, refs) = X.parseLabels X.defaultDelims line
+
+    forM_ anchors \(anchor, columnRange) -> do
+      let symbol = mkSymbol anchor uri (LineNum lineNum) columnRange
+      Db.insertAnchor conn symbol
+
+    forM_ refs \(ref, columnRange) -> do
+      let symbol = mkSymbol ref uri (LineNum lineNum) columnRange
+      Db.insertReference conn symbol
+
+  -- Update the version we have for this file.
+  modifyState \appState1 -> appState1 {fileVersions = SM.insert uri fileVersion appState1.fileVersions}
+
 -- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
 xToLsp :: Int -> LSP.UInt
 xToLsp xLine = fromIntegral @Int @LSP.UInt (xLine - 1)
@@ -59,4 +85,26 @@ mkSymbol sym uri lineNum columnRange =
       line = lineNum,
       columnStart = xToLsp columnRange.start,
       columnEnd = xToLsp columnRange.end
+    }
+
+symbolLocToLspRange :: Symbol -> LSP.Range
+symbolLocToLspRange sym =
+  LSP.Range
+    { _start =
+        LSP.Position
+          { _line = sym.line.getLineNum,
+            _character = sym.columnStart
+          },
+      _end =
+        LSP.Position
+          { _line = sym.line.getLineNum,
+            _character = sym.columnEnd + 1
+          }
+    }
+
+symbolLocToLspLocation :: Symbol -> LSP.Location
+symbolLocToLspLocation sym =
+  LSP.Location
+    { _uri = sym.uri,
+      _range = symbolLocToLspRange sym
     }

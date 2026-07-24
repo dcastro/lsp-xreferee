@@ -8,7 +8,7 @@ import Language.LSP.Server as LSP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Prelude
-import Xreferee.Lsp.Util qualified as Util
+import Xreferee.Lsp.Symbols qualified as Symbols
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareRename
 handlePrepareRename :: Handler AppM 'LSP.Method_TextDocumentPrepareRename
@@ -32,6 +32,6 @@ handlePrepareRename req responder = do
               LSP.InR $
                 LSP.InL $
                   LSP.PrepareRenamePlaceholder
-                    { _range = Util.symbolLocToLspRange symbol,
+                    { _range = Symbols.symbolLocToLspRange symbol,
                       _placeholder = symbol.name
                     }

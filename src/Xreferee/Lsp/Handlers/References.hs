@@ -9,7 +9,7 @@ import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
-import Xreferee.Lsp.Util qualified as Util
+import Xreferee.Lsp.Symbols qualified as Symbols
 
 handleReferences :: Handler AppM 'LSP.Method_TextDocumentReferences
 handleReferences req responder = do
@@ -26,5 +26,5 @@ handleReferences req responder = do
     Just anchor -> do
       -- Find the corresponding references
       refs <- Db.findReferencesWithName conn anchor.name
-      let locs = refs <&> \ref -> Util.symbolLocToLspLocation ref
+      let locs = refs <&> \ref -> Symbols.symbolLocToLspLocation ref
       responder $ Right $ LSP.InL locs

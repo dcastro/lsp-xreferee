@@ -13,6 +13,7 @@ import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
+import Xreferee.Lsp.Symbols qualified as Symbols
 import Xreferee.Lsp.Util (ReadFileError (..))
 import Xreferee.Lsp.Util qualified as Util
 
@@ -100,7 +101,7 @@ runHandler fileEvents = do
                   -- NOTE: If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,
                   -- the next time the user opens it, the version will be reset to 1.
                   let fileVersion = 1
-                  Util.loadSymbolsForFile uri contents fileVersion
+                  Symbols.loadSymbolsForFile uri contents fileVersion
           LSP.FileChangeType_Created -> do
             -- NOTE: this is triggered when:
             --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
@@ -142,7 +143,7 @@ runHandler fileEvents = do
                   Right contents -> do
                     Log.debug $ "didChangeWatchedFiles: Created: loading file from disk: " <> tshow path
                     let fileVersion = 1
-                    Util.loadSymbolsForFile uri contents fileVersion
+                    Symbols.loadSymbolsForFile uri contents fileVersion
           LSP.FileChangeType_Deleted -> do
             -- NOTE: We don't know whether this was a file or a directory.
             -- So we have to delete the symbols for this uri, and also delete the symbols for all files with

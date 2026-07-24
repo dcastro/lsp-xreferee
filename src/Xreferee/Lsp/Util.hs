@@ -2,7 +2,6 @@
 
 module Xreferee.Lsp.Util where
 
-import Control.Lens hiding (Indexable, Iso)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map.Strict qualified as SM
@@ -13,13 +12,10 @@ import System.Directory qualified as Dir
 import System.FilePath qualified as FP
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
-import Xreferee.Lsp.Db (LineNum (..), Symbol (..))
-import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Git (CheckIgnoreResult (..))
 import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
-import Xreferee.Lsp.Symbols qualified as Symbols
 
 -- The options we use to search for symbols using the `xreferee` package.
 searchOpts :: X.SearchOpts
@@ -30,51 +26,6 @@ searchOpts =
       -- we want xreferee to detect changes done to files not yet tracked by git.
       includeUntracked = True,
       delims = X.defaultDelims
-    }
-
--- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
-loadSymbolsForFile :: Uri -> LByteString -> Int32 -> AppM ()
-loadSymbolsForFile uri contents fileVersion = do
-  conn <- view conn
-
-  -- Delete the old symbols for this file.
-  Db.deleteSymbolsForFile conn uri
-
-  -- Parse the new symbols for this file.
-  forM_ (LBS.lines contents `zip` [0 ..]) \(line, lineNum) -> do
-    let (anchors, refs) = X.parseLabels X.defaultDelims line
-
-    forM_ anchors \(anchor, columnRange) -> do
-      let symbol = Symbols.mkSymbol anchor uri (LineNum lineNum) columnRange
-      Db.insertAnchor conn symbol
-
-    forM_ refs \(ref, columnRange) -> do
-      let symbol = Symbols.mkSymbol ref uri (LineNum lineNum) columnRange
-      Db.insertReference conn symbol
-
-  -- Update the version we have for this file.
-  modifyState \appState1 -> appState1 {fileVersions = SM.insert uri fileVersion appState1.fileVersions}
-
-symbolLocToLspRange :: Symbol -> LSP.Range
-symbolLocToLspRange sym =
-  LSP.Range
-    { _start =
-        LSP.Position
-          { _line = sym.line.getLineNum,
-            _character = sym.columnStart
-          },
-      _end =
-        LSP.Position
-          { _line = sym.line.getLineNum,
-            _character = sym.columnEnd + 1
-          }
-    }
-
-symbolLocToLspLocation :: Symbol -> LSP.Location
-symbolLocToLspLocation sym =
-  LSP.Location
-    { _uri = sym.uri,
-      _range = symbolLocToLspRange sym
     }
 
 -- | Checks whether we should ignore or process a given file or directory.

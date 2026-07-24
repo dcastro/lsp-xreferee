@@ -8,7 +8,7 @@ import Language.LSP.Server as LSP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
-import Xreferee.Lsp.Util qualified as Util
+import Xreferee.Lsp.Symbols qualified as Symbols
 
 -- | Handle `didOpen` notifications.
 --
@@ -30,7 +30,7 @@ handleDidOpen = \req -> do
 
   appState <- getState
   when (checkIfBufferIsDirty uri fileVersion appState) do
-    Util.loadSymbolsForFile uri contents fileVersion
+    Symbols.loadSymbolsForFile uri contents fileVersion
   where
     checkIfBufferIsDirty :: Uri -> Int32 -> AppState -> Bool
     checkIfBufferIsDirty uri fileVersion appState =
