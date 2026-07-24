@@ -32,6 +32,7 @@ import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.FileWatchers qualified as FileWatchers
 import Xreferee.Lsp.Git qualified as Git
+import Xreferee.Lsp.Handlers qualified as Handlers
 import Xreferee.Lsp.Handlers.Definition (handleDefinition)
 import Xreferee.Lsp.Handlers.DidChange (handleDidChange)
 import Xreferee.Lsp.Handlers.DidOpen (handleDidOpen)
@@ -41,7 +42,6 @@ import Xreferee.Lsp.Handlers.Rename (handleRename)
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Options qualified as LspOpt
 import Xreferee.Lsp.Prelude
-import Xreferee.Lsp.SendDiagnostics (sendDiagnostics)
 import Xreferee.Lsp.Symbols qualified as Symbols
 import Xreferee.Lsp.Util qualified as Util
 
@@ -197,45 +197,26 @@ lspOptions =
 -- | After each handler runs, check if there are diagnostics to send to the client, and send them if so.
 handlersWithDiagnostics :: Handlers AppM
 handlersWithDiagnostics =
-  handlers & mapHandlers goReq goNot
-  where
-    goReq :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Request). Handler AppM a -> Handler AppM a
-    goReq handler msg responder =
-      annotateStackStringIO ("Handling " <> show msg._method) do
-        flip withException exHandler do
-          handler msg responder
-          sendDiagnostics
-
-    goNot :: forall (a :: LSP.Method 'LSP.ClientToServer 'LSP.Notification). Handler AppM a -> Handler AppM a
-    goNot handler msg = do
-      annotateStackStringIO ("Handling " <> show msg._method) do
-        flip withException exHandler do
-          handler msg
-          sendDiagnostics
-
-    -- Send a message to the client, but don't recover - let the LSP crash.
-    exHandler :: SomeException -> AppM ()
-    exHandler ex = do
-      Log.err ("xreferee failed:\n" <> T.pack (displayFullException ex))
+  handlers & mapHandlers Handlers.setupReqHandler Handlers.setupNotHandler
 
 -- | Where the actual logic resides for handling requests and notifications.
 handlers :: Handlers AppM
 handlers =
   mconcat
-    [ notificationHandler LSP.SMethod_Initialized $ Util.timedNot \_msg -> do
+    [ notificationHandler LSP.SMethod_Initialized \_msg -> do
         FileWatchers.watchRepoFiles,
-      notificationHandler LSP.SMethod_TextDocumentDidOpen (Util.timedNot $ filterNot handleDidOpen),
+      notificationHandler LSP.SMethod_TextDocumentDidOpen (filterNot handleDidOpen),
       notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
         pure (),
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \_msg -> do
         cfg <- getConfig
         Log.debugP "Configuration changed" cfg,
-      notificationHandler LSP.SMethod_TextDocumentDidChange (Util.timedNot $ filterNot handleDidChange),
-      requestHandler LSP.SMethod_TextDocumentPrepareRename (Util.timedReq $ filterReq handlePrepareRename),
-      requestHandler LSP.SMethod_TextDocumentRename (Util.timedReq $ filterReq handleRename),
-      requestHandler LSP.SMethod_TextDocumentDefinition (Util.timedReq $ filterReq handleDefinition),
-      requestHandler LSP.SMethod_TextDocumentReferences (Util.timedReq $ filterReq handleReferences)
+      notificationHandler LSP.SMethod_TextDocumentDidChange (filterNot handleDidChange),
+      requestHandler LSP.SMethod_TextDocumentPrepareRename (filterReq handlePrepareRename),
+      requestHandler LSP.SMethod_TextDocumentRename (filterReq handleRename),
+      requestHandler LSP.SMethod_TextDocumentDefinition (filterReq handleDefinition),
+      requestHandler LSP.SMethod_TextDocumentReferences (filterReq handleReferences)
       -- Workspace events
       -- NOTE: `workspace/didChangeWatchedFiles` must be registered dynamically, see `registerDidChangeWatchedFiles`
     ]

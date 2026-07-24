@@ -7,13 +7,9 @@ import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map.Strict qualified as SM
 import Data.Text qualified as T
-import Data.Time.Clock.POSIX qualified as Time
 import GHC.IO.Exception (IOErrorType (InappropriateType))
-import Language.LSP.Protocol.Lens qualified as LSP
-import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Protocol.Types qualified as LSP
-import Language.LSP.Server qualified as LSP
 import System.Directory qualified as Dir
 import System.FilePath qualified as FP
 import XReferee.SearchResult qualified as X
@@ -81,26 +77,6 @@ symbolLocToLspLocation sym =
     { _uri = sym.uri,
       _range = symbolLocToLspRange sym
     }
-
--- | Wraps a request handler to log the time it took to handle the request.
-timedReq :: forall from (method :: LSP.Method from 'LSP.Request). LSP.Handler AppM method -> LSP.Handler AppM method
-timedReq handler req responder = do
-  let method = req ^. LSP.method
-  t0 <- liftIO Time.getPOSIXTime
-  handler req responder
-  t1 <- liftIO Time.getPOSIXTime
-  let duration = t1 - t0
-  Log.debugP ("Handled " <> tshow method <> " in") duration
-
--- | Wraps a notification handler to log the time it took to handle the notification.
-timedNot :: forall from (method :: LSP.Method from 'LSP.Notification). LSP.Handler AppM method -> LSP.Handler AppM method
-timedNot handler req = do
-  let method = req ^. LSP.method
-  t0 <- liftIO Time.getPOSIXTime
-  handler req
-  t1 <- liftIO Time.getPOSIXTime
-  let duration = t1 - t0
-  Log.debugP ("Handled " <> tshow method <> " in") duration
 
 -- | Checks whether we should ignore or process a given file or directory.
 --

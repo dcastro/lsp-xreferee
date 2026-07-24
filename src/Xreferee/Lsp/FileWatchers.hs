@@ -9,12 +9,11 @@ import Language.LSP.Server qualified as LSP
 import Prettyprinter
 import System.FilePath qualified as FP
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Handlers qualified as Handlers
 import Xreferee.Lsp.Handlers.DidChangeGitIgnore qualified as Handlers
 import Xreferee.Lsp.Handlers.DidChangeWatchedFiles qualified as Handlers
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
-import Xreferee.Lsp.SendDiagnostics (sendDiagnostics)
-import Xreferee.Lsp.Util qualified as Util
 
 watchRepoFiles :: AppM ()
 watchRepoFiles = do
@@ -26,7 +25,7 @@ watchRepoFiles = do
   -- the `lsp` library keys dynamic registrations by method, so registering twice for the
   -- same method overwrites the first handler. Instead, we register a single handler that
   -- dispatches to the right internal handler.
-  let handler = dispatcher
+  let handler = Handlers.setupNotHandler dispatcher
 
   appLogger <- view logger
   let coreLogger = L.cmap (fmap (tshow . pretty)) appLogger
@@ -39,7 +38,7 @@ watchRepoFiles = do
       coreLogger
       LSP.SMethod_WorkspaceDidChangeWatchedFiles
       registrationOptions
-      (Util.timedNot handler)
+      handler
 
   case result of
     Nothing ->
@@ -54,12 +53,10 @@ watchRepoFiles = do
 -- file event in this batch). Otherwise we handle the events incrementally.
 dispatcher :: LSP.Handler AppM 'LSP.Method_WorkspaceDidChangeWatchedFiles
 dispatcher = \req -> do
-  annotateStackStringIO ("Handling " <> show (req ^. LSP.method)) do
-    let changes = req ^. LSP.params . LSP.changes
-    if any (isGitIgnore . view LSP.uri) changes
-      then Handlers.handleDidChangeGitIgnore req
-      else Handlers.handleDidChangeWatchedFiles req
-    sendDiagnostics
+  let changes = req ^. LSP.params . LSP.changes
+  if any (isGitIgnore . view LSP.uri) changes
+    then Handlers.handleDidChangeGitIgnore req
+    else Handlers.handleDidChangeWatchedFiles req
   where
     isGitIgnore :: LSP.Uri -> Bool
     isGitIgnore uri =

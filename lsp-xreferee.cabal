@@ -27,6 +27,7 @@ library
     Xreferee.Lsp.Exception
     Xreferee.Lsp.FileWatchers
     Xreferee.Lsp.Git
+    Xreferee.Lsp.Handlers
     Xreferee.Lsp.Handlers.Definition
     Xreferee.Lsp.Handlers.DidChange
     Xreferee.Lsp.Handlers.DidChangeGitIgnore
