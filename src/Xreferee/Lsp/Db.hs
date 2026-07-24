@@ -70,13 +70,16 @@ new = liftIO do
       );
     |]
 
+  -- Serves the `name = ?` lookups,
+  -- satisfies `ORDER BY name` and `GROUP BY name`,
+  -- and lets the `NOT IN (SELECT name FROM ...)` subqueries be evaluated as index probes.
   execute_ conn [sql| CREATE INDEX idx_anchors_name ON anchors (name) |]
-  execute_ conn [sql| CREATE INDEX idx_anchors_uri ON anchors (uri) |]
-  execute_ conn [sql| CREATE INDEX idx_anchors_line ON anchors (line) |]
-
   execute_ conn [sql| CREATE INDEX idx_refs_name ON refs (name) |]
-  execute_ conn [sql| CREATE INDEX idx_refs_uri ON refs (uri) |]
-  execute_ conn [sql| CREATE INDEX idx_refs_line ON refs (line) |]
+
+  -- Note: there is deliberately no index on `line` alone: no query filters by
+  -- line without also filtering by uri.
+  execute_ conn [sql| CREATE INDEX idx_anchors_uri_line ON anchors (uri, line) |]
+  execute_ conn [sql| CREATE INDEX idx_refs_uri_line ON refs (uri, line) |]
 
   pure conn
 
