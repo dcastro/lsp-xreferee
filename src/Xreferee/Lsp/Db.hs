@@ -190,12 +190,18 @@ deleteSymbolsForFile uri = do
 deleteSymbolsForFileOrDirectory :: LSP.Uri -> AppM ()
 deleteSymbolsForFileOrDirectory uri = do
   conn <- view conn
-  let prefix = addTrailingPathSeparator uri
-  liftIO $ execute conn [sql|DELETE FROM anchors WHERE uri LIKE ?|] [prefix <> "%"]
+  let dirPrefix = addTrailingPathSeparator uri <> "%"
+  liftIO $ execute conn [sql|DELETE FROM anchors WHERE uri = ? OR uri LIKE ?|] (uri, dirPrefix)
   checkDirty conn
-  liftIO $ execute conn [sql|DELETE FROM refs WHERE uri LIKE ?|] [prefix <> "%"]
+  liftIO $ execute conn [sql|DELETE FROM refs WHERE uri = ? OR uri LIKE ?|] (uri, dirPrefix)
   checkDirty conn
   where
+    -- We can't check whether this uri points to a file or a directory, because
+    -- by the time we get here the path has already been deleted from disk.
+    -- So we handle both cases: `uri = ?` deletes the symbols for the uri itself
+    -- (if it was a file), and `uri LIKE ?` deletes the symbols for everything
+    -- underneath it (if it was a directory).
+    --
     -- We MUST add a trailing path separator to a uri like `./foo`,
     -- otherwise, `./foobar/file.md LIKE ./foo%` would incorrectly be `True`.
     -- Instead, the clause should be `./foobar/file.md LIKE ./foo/%`.
