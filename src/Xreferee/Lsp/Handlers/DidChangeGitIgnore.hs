@@ -7,7 +7,6 @@ import Language.LSP.Protocol.Types qualified as LFS
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import Language.LSP.VFS qualified as VFS
-import System.FilePath qualified as FP
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
@@ -45,7 +44,7 @@ reloadAllSymbols = do
   repoRootDir <- view repoRootDir
   searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
 
-  Symbols.insertSearchResult (FP.joinPath repoRootDir) (Set.fromList openFiles) searchResult
+  Symbols.insertSearchResult repoRootDir (Set.fromList openFiles) searchResult
 
 -- | Delete every symbol from the db, except for files currently open in the editor.
 -- We want to keep their symbols in the db,

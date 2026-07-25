@@ -45,8 +45,8 @@ data AppData = AppData
 
 data AppEnv = AppEnv
   { logger :: AppLogger,
-    -- | The current working directory, split with `splitDirectories`.
-    repoRootDir :: [FilePath],
+    -- | The current working directory.
+    repoRootDir :: FilePath,
     -- | Whether to log the payloads of LSP requests / notifications
     -- (at the debug level, to the logfile, if one is supplied).
     -- Can be very verbose e.g. when a large file is opened.
