@@ -45,8 +45,7 @@ reloadAllSymbols = do
   repoRootDir <- view repoRootDir
   searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
 
-  conn <- view conn
-  Symbols.insertSearchResult conn (FP.joinPath repoRootDir) (Set.fromList openFiles) searchResult
+  Symbols.insertSearchResult (FP.joinPath repoRootDir) (Set.fromList openFiles) searchResult
 
 -- | Delete every symbol from the db, except for files currently open in the editor.
 -- We want to keep their symbols in the db,
@@ -59,7 +58,6 @@ truncateDb = do
 
   -- Since .gitignore has changed, we need to re-evaluate which files we should handle.
   openUris <- filterM Util.shouldHandleFileOrDir openUris
-  conn <- view conn
-  Db.deleteSymbolsExcept conn openUris
+  Db.deleteSymbolsExcept openUris
 
   pure openUris

@@ -8,7 +8,6 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as LT
 import Data.Text.Mixed.Rope qualified as Rope
-import Database.SQLite.Simple (Connection)
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types (UInt)
@@ -31,8 +30,7 @@ handleDidChange = \req -> do
 
   let diffs = req ^. LSP.params . LSP.contentChanges
 
-  conn <- view conn
-  ApplyChangesResult linesToParse <- applyChanges conn uri diffs
+  ApplyChangesResult linesToParse <- applyChanges uri diffs
 
   -- Parse the lines that were modified by the diffs, and insert the new anchors/refs into the DB.
   let parseLine lineNum =
@@ -43,8 +41,8 @@ handleDidChange = \req -> do
           & encodeUtf8
           & Symbols.parseLine uri (Db.LineNum lineNum)
   let (anchors, refs) = foldMap parseLine linesToParse
-  Db.insertAnchors conn anchors
-  Db.insertReferences conn refs
+  Db.insertAnchors anchors
+  Db.insertReferences refs
 
   -- Update the version we have for this file.
   modifyState \appState ->
@@ -53,8 +51,8 @@ handleDidChange = \req -> do
 -- | Calculates which lines we'll need to reparse after applying the given diffs.
 -- Removes anchors/refs that are on lines that were modified by the diffs,
 -- and updates the line numbers of anchors/refs that are located after the diffs.
-applyChanges :: Connection -> Uri -> [LSP.TextDocumentContentChangeEvent] -> AppM ApplyChangesResult
-applyChanges conn uri diffs =
+applyChanges :: Uri -> [LSP.TextDocumentContentChangeEvent] -> AppM ApplyChangesResult
+applyChanges uri diffs =
   let initialState = ApplyChangesResult {linesToParse = mempty}
    in foldM go initialState diffs
   where
@@ -90,10 +88,10 @@ applyChanges conn uri diffs =
               linesToParse1 = linesToParse0 <> Set.fromList [oldLineStart .. oldLineStart + newLineCount - 1]
 
           -- Discard anchors/refs on lines that were modified by this diff
-          Db.deleteSymbolsInLineRange conn uri (Db.LineNum oldLineStart) (Db.LineNum oldLineEnd)
+          Db.deleteSymbolsInLineRange uri (Db.LineNum oldLineStart) (Db.LineNum oldLineEnd)
 
           -- Update the line numbers of anchors/refs that are after the diff
-          Db.shiftSymbolsAfterLine conn uri (Db.LineNum oldLineEnd) lineDelta
+          Db.shiftSymbolsAfterLine uri (Db.LineNum oldLineEnd) lineDelta
 
           pure $
             result

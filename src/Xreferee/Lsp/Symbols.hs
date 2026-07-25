@@ -6,7 +6,6 @@ import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map qualified as Map
 import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
-import Database.SQLite.Simple (Connection)
 import Language.LSP.Protocol.Types qualified as LSP
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
@@ -22,14 +21,14 @@ import Xreferee.Lsp.Prelude
 -- The handler for SMethod_Initialized went from taking 4.2s to 1.6s.
 type UriCache = Map FilePath LSP.Uri
 
-insertSearchResult :: Connection -> FilePath -> Set LSP.Uri -> X.SearchResult -> AppM ()
-insertSearchResult conn repoRootDir excludedFiles searchResult = do
+insertSearchResult :: FilePath -> Set LSP.Uri -> X.SearchResult -> AppM ()
+insertSearchResult repoRootDir excludedFiles searchResult = do
   (anchors, references) <- flip evalStateT mempty do
     anchors <- toSymbols searchResult.anchors
     references <- toSymbols searchResult.references
     pure (anchors, references)
-  Db.insertAnchors conn anchors
-  Db.insertReferences conn references
+  Db.insertAnchors anchors
+  Db.insertReferences references
   where
     -- Converts all the labels' locations into `Symbol`s, discarding the ones in excluded files.
     toSymbols :: (X.Label label, Monad m) => Map label [X.LabelLoc] -> StateT UriCache m [Symbol]
@@ -57,18 +56,16 @@ insertSearchResult conn repoRootDir excludedFiles searchResult = do
 -- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
 loadSymbolsForFile :: Uri -> LByteString -> Int32 -> AppM ()
 loadSymbolsForFile uri contents fileVersion = do
-  conn <- view conn
-
   -- Delete the old symbols for this file.
-  Db.deleteSymbolsForFile conn uri
+  Db.deleteSymbolsForFile uri
 
   -- Parse the new symbols for this file.
   let (anchors, refs) =
         foldMap
           (\(line, lineNum) -> parseLine uri (LineNum lineNum) line)
           (LBS.lines contents `zip` [0 ..])
-  Db.insertAnchors conn anchors
-  Db.insertReferences conn refs
+  Db.insertAnchors anchors
+  Db.insertReferences refs
 
   -- Update the version we have for this file.
   modifyState \appState1 -> appState1 {fileVersions = SM.insert uri fileVersion appState1.fileVersions}

@@ -18,15 +18,13 @@ handleDefinition = \req responder -> do
   let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
   let reqPos = req ^. LSP.params ^. LSP.position
 
-  conn <- view conn
-
-  Db.findReferenceAtPosition conn reqUri reqPos >>= \case
+  Db.findReferenceAtPosition reqUri reqPos >>= \case
     Nothing ->
       responder $ Right $ LSP.InR (LSP.InR LSP.Null)
     Just ref -> do
       -- Find the corresponding anchor(s).
       -- Ideally there will be 1, but there can also be 0 (if the reference is broken) or more than 1 (if there are duplicate anchors).
-      anchors <- Db.findAnchorsWithName conn ref.name
+      anchors <- Db.findAnchorsWithName ref.name
       -- Build links from the reference to the anchor(s)
       let links =
             anchors

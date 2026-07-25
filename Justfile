@@ -21,3 +21,9 @@ install:
 
 format:
     ormolu --mode inplace $(git ls-files -- '*.hs' ':!:src/ExceptionUtil.hs')
+
+checks:
+    xreferee
+    just test
+    just format
+    cabal build all --enable-tests --enable-benchmarks --ghc-options "-Werror"

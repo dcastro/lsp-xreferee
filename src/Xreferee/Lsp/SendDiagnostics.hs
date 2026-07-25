@@ -21,7 +21,6 @@ diagnosticsSource = Just "xreferee"
 -- "textDocument/publishDiagnostics" notification
 sendDiagnostics :: AppM ()
 sendDiagnostics = do
-  conn <- view conn
   appState <- getState
   -- If the symbols didn't change, then the diagnostics won't change either, so we can skip computing diagnostics.
   if not appState.isDbDirty
@@ -30,9 +29,9 @@ sendDiagnostics = do
       pure ()
     else do
       Log.debug "sendDiagnostics: computing"
-      unusedAnchors <- Db.findUnusedAnchors conn
-      brokenRefs <- Db.findBrokenReferences conn
-      duplicateAnchors <- Db.findDuplicateAnchors conn
+      unusedAnchors <- Db.findUnusedAnchors
+      brokenRefs <- Db.findBrokenReferences
+      duplicateAnchors <- Db.findDuplicateAnchors
 
       let unusedAnchorsDiagnostics = do
             anchor <- unusedAnchors

@@ -18,13 +18,11 @@ handleReferences req responder = do
   let reqUri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let reqPos = req ^. LSP.params . LSP.position
 
-  conn <- view conn
-
-  Db.findAnchorAtPosition conn reqUri reqPos >>= \case
+  Db.findAnchorAtPosition reqUri reqPos >>= \case
     Nothing ->
       responder $ Right $ LSP.InR LSP.Null
     Just anchor -> do
       -- Find the corresponding references
-      refs <- Db.findReferencesWithName conn anchor.name
+      refs <- Db.findReferencesWithName anchor.name
       let locs = refs <&> \ref -> Symbols.symbolLocToLspLocation ref
       responder $ Right $ LSP.InL locs

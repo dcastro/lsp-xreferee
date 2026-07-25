@@ -22,16 +22,15 @@ handleRename req responder = do
   let pos = req ^. LSP.params . LSP.position
   let newLabelName = req ^. LSP.params . LSP.newName
 
-  conn <- view conn
   maybeMatch <-
-    Db.findAnchorAtPosition conn uri pos >>= \case
+    Db.findAnchorAtPosition uri pos >>= \case
       Just symbol -> pure (Just symbol)
-      Nothing -> Db.findReferenceAtPosition conn uri pos
+      Nothing -> Db.findReferenceAtPosition uri pos
 
   case maybeMatch of
     Nothing -> responder $ Right $ LSP.InR LSP.Null
     Just symbol -> do
-      matchingAnchors <- Db.findAnchorsWithName conn symbol.name
+      matchingAnchors <- Db.findAnchorsWithName symbol.name
       let anchorEdits :: Map Uri [LSP.TextEdit] =
             matchingAnchors
               <&> ( \anchor ->
@@ -45,7 +44,7 @@ handleRename req responder = do
                   )
               & Map.fromListWith (<>)
 
-      matchingRefs <- Db.findReferencesWithName conn symbol.name
+      matchingRefs <- Db.findReferencesWithName symbol.name
       let refEdits :: Map Uri [LSP.TextEdit] =
             matchingRefs
               <&> ( \ref ->

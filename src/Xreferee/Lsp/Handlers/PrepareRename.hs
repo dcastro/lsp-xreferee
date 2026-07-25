@@ -16,11 +16,10 @@ handlePrepareRename req responder = do
   let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
   let pos = req ^. LSP.params . LSP.position
 
-  conn <- view conn
   maybeMatch <-
-    Db.findAnchorAtPosition conn uri pos >>= \case
+    Db.findAnchorAtPosition uri pos >>= \case
       Just symbol -> pure (Just symbol)
-      Nothing -> Db.findReferenceAtPosition conn uri pos
+      Nothing -> Db.findReferenceAtPosition uri pos
 
   case maybeMatch of
     Nothing -> responder $ Right $ LSP.InR LSP.Null

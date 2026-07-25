@@ -11,7 +11,7 @@ import Database.SQLite.Simple.ToField (ToField (..))
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import System.FilePath qualified as FP
-import Xreferee.Lsp.AppM (AppM, AppState (..), modifyState)
+import Xreferee.Lsp.AppM (AppM, AppState (..), HasAppEnv (conn), modifyState)
 import Xreferee.Lsp.Orphans ()
 import Xreferee.Lsp.Prelude
 
@@ -83,8 +83,9 @@ new = liftIO do
 
   pure conn
 
-insertAnchors :: Connection -> [Symbol] -> AppM ()
-insertAnchors conn anchors =
+insertAnchors :: [Symbol] -> AppM ()
+insertAnchors anchors = do
+  conn <- view conn
   unless (null anchors) do
     liftIO $
       withTransaction conn $
@@ -94,8 +95,9 @@ insertAnchors conn anchors =
           anchors
     setDirty
 
-insertReferences :: Connection -> [Symbol] -> AppM ()
-insertReferences conn references =
+insertReferences :: [Symbol] -> AppM ()
+insertReferences references = do
+  conn <- view conn
   unless (null references) do
     liftIO $
       withTransaction conn $
@@ -105,8 +107,9 @@ insertReferences conn references =
           references
     setDirty
 
-deleteSymbolsExcept :: Connection -> [LSP.Uri] -> AppM ()
-deleteSymbolsExcept conn uris = do
+deleteSymbolsExcept :: [LSP.Uri] -> AppM ()
+deleteSymbolsExcept uris = do
+  conn <- view conn
   let placeholders = T.intercalate "," (replicate (length uris) "?")
   let query = "DELETE FROM anchors WHERE uri NOT IN (" <> placeholders <> ")"
   liftIO $ execute conn (Query query) uris
@@ -115,67 +118,78 @@ deleteSymbolsExcept conn uris = do
   liftIO $ execute conn (Query queryRefs) uris
   checkDirty conn
 
-findAnchorsWithName :: (MonadIO m) => Connection -> Text -> m [Symbol]
-findAnchorsWithName conn name = liftIO do
-  query @_ @Symbol
-    conn
-    [sql|
-      SELECT name, uri, line, column_start, column_end
-      FROM anchors
-      WHERE name = ?
-    |]
-    (Only name)
-
-findReferencesWithName :: (MonadIO m) => Connection -> Text -> m [Symbol]
-findReferencesWithName conn name = liftIO do
-  query @_ @Symbol
-    conn
-    [sql|
-      SELECT name, uri, line, column_start, column_end
-      FROM refs
-      WHERE name = ?
-    |]
-    (Only name)
-
-findAnchorAtPosition :: (MonadIO m) => Connection -> LSP.Uri -> LSP.Position -> m (Maybe Symbol)
-findAnchorAtPosition conn uri lspPos = liftIO do
-  let reqLine = lspPos ^. LSP.line
-  let reqColumn = lspPos ^. LSP.character
-  listToMaybe
-    <$> query @_ @Symbol
+findAnchorsWithName :: Text -> AppM [Symbol]
+findAnchorsWithName name = do
+  conn <- view conn
+  liftIO do
+    query @_ @Symbol
       conn
       [sql|
         SELECT name, uri, line, column_start, column_end
         FROM anchors
-        WHERE uri = ? AND line = ? AND column_start <= ? AND column_end >= ?
-        LIMIT 1
-    |]
-      (uri, reqLine, reqColumn, reqColumn)
+        WHERE name = ?
+      |]
+      (Only name)
 
-findReferenceAtPosition :: (MonadIO m) => Connection -> LSP.Uri -> LSP.Position -> m (Maybe Symbol)
-findReferenceAtPosition conn uri lspPos = liftIO do
-  let reqLine = lspPos ^. LSP.line
-  let reqColumn = lspPos ^. LSP.character
-  listToMaybe
-    <$> query @_ @Symbol
+findReferencesWithName :: Text -> AppM [Symbol]
+findReferencesWithName name = do
+  conn <- view conn
+  liftIO do
+    query @_ @Symbol
       conn
       [sql|
         SELECT name, uri, line, column_start, column_end
         FROM refs
-        WHERE uri = ? AND line = ? AND column_start <= ? AND column_end >= ?
-        LIMIT 1
-    |]
-      (uri, reqLine, reqColumn, reqColumn)
+        WHERE name = ?
+      |]
+      (Only name)
 
-deleteSymbolsForFile :: Connection -> LSP.Uri -> AppM ()
-deleteSymbolsForFile conn uri = do
+findAnchorAtPosition :: LSP.Uri -> LSP.Position -> AppM (Maybe Symbol)
+findAnchorAtPosition uri lspPos = do
+  conn <- view conn
+  let reqLine = lspPos ^. LSP.line
+  let reqColumn = lspPos ^. LSP.character
+  liftIO do
+    listToMaybe
+      <$> query @_ @Symbol
+        conn
+        [sql|
+          SELECT name, uri, line, column_start, column_end
+          FROM anchors
+          WHERE uri = ? AND line = ? AND column_start <= ? AND column_end >= ?
+          LIMIT 1
+        |]
+        (uri, reqLine, reqColumn, reqColumn)
+
+findReferenceAtPosition :: LSP.Uri -> LSP.Position -> AppM (Maybe Symbol)
+findReferenceAtPosition uri lspPos = do
+  conn <- view conn
+  let reqLine = lspPos ^. LSP.line
+  let reqColumn = lspPos ^. LSP.character
+
+  liftIO do
+    listToMaybe
+      <$> query @_ @Symbol
+        conn
+        [sql|
+          SELECT name, uri, line, column_start, column_end
+          FROM refs
+          WHERE uri = ? AND line = ? AND column_start <= ? AND column_end >= ?
+          LIMIT 1
+        |]
+        (uri, reqLine, reqColumn, reqColumn)
+
+deleteSymbolsForFile :: LSP.Uri -> AppM ()
+deleteSymbolsForFile uri = do
+  conn <- view conn
   liftIO $ execute conn [sql|DELETE FROM anchors WHERE uri = ?|] (Only uri)
   checkDirty conn
   liftIO $ execute conn [sql|DELETE FROM refs WHERE uri = ?|] (Only uri)
   checkDirty conn
 
-deleteSymbolsForFileOrDirectory :: Connection -> LSP.Uri -> AppM ()
-deleteSymbolsForFileOrDirectory conn uri = do
+deleteSymbolsForFileOrDirectory :: LSP.Uri -> AppM ()
+deleteSymbolsForFileOrDirectory uri = do
+  conn <- view conn
   let prefix = addTrailingPathSeparator uri
   liftIO $ execute conn [sql|DELETE FROM anchors WHERE uri LIKE ?|] [prefix <> "%"]
   checkDirty conn
@@ -189,42 +203,49 @@ deleteSymbolsForFileOrDirectory conn uri = do
     addTrailingPathSeparator =
       T.pack . FP.addTrailingPathSeparator . T.unpack . LSP.getUri
 
-findUnusedAnchors :: (MonadIO m) => Connection -> m [Symbol]
-findUnusedAnchors conn = liftIO do
-  query_ @Symbol
-    conn
-    [sql|
-      SELECT name, uri, line, column_start, column_end
-      FROM anchors
-      WHERE name NOT IN (SELECT name FROM refs)
-      ORDER BY name
-    |]
+findUnusedAnchors :: AppM [Symbol]
+findUnusedAnchors = do
+  conn <- view conn
+  liftIO do
+    query_ @Symbol
+      conn
+      [sql|
+        SELECT name, uri, line, column_start, column_end
+        FROM anchors
+        WHERE name NOT IN (SELECT name FROM refs)
+        ORDER BY name
+      |]
 
-findBrokenReferences :: (MonadIO m) => Connection -> m [Symbol]
-findBrokenReferences conn = liftIO do
-  query_ @Symbol
-    conn
-    [sql|
-      SELECT name, uri, line, column_start, column_end
-      FROM refs
-      WHERE name NOT IN (SELECT name FROM anchors)
-      ORDER BY name
-    |]
+findBrokenReferences :: AppM [Symbol]
+findBrokenReferences = do
+  conn <- view conn
+  liftIO do
+    query_ @Symbol
+      conn
+      [sql|
+        SELECT name, uri, line, column_start, column_end
+        FROM refs
+        WHERE name NOT IN (SELECT name FROM anchors)
+        ORDER BY name
+      |]
 
-findDuplicateAnchors :: (MonadIO m) => Connection -> m [Symbol]
-findDuplicateAnchors conn = liftIO do
-  query_ @Symbol
-    conn
-    -- #(ref:duplicate-anchors-sorted)
-    [sql|
-      SELECT name, uri, line, column_start, column_end
-      FROM anchors
-      WHERE name IN (SELECT name FROM anchors GROUP BY name HAVING COUNT(*) > 1)
-      ORDER BY name
-    |]
+findDuplicateAnchors :: AppM [Symbol]
+findDuplicateAnchors = do
+  conn <- view conn
+  liftIO do
+    query_ @Symbol
+      conn
+      -- #(ref:duplicate-anchors-sorted)
+      [sql|
+        SELECT name, uri, line, column_start, column_end
+        FROM anchors
+        WHERE name IN (SELECT name FROM anchors GROUP BY name HAVING COUNT(*) > 1)
+        ORDER BY name
+      |]
 
-deleteSymbolsInLineRange :: Connection -> LSP.Uri -> LineNum -> LineNum -> AppM ()
-deleteSymbolsInLineRange conn uri startLine endLine = do
+deleteSymbolsInLineRange :: LSP.Uri -> LineNum -> LineNum -> AppM ()
+deleteSymbolsInLineRange uri startLine endLine = do
+  conn <- view conn
   liftIO $
     execute
       conn
@@ -238,8 +259,9 @@ deleteSymbolsInLineRange conn uri startLine endLine = do
       (uri, startLine, endLine)
   checkDirty conn
 
-shiftSymbolsAfterLine :: Connection -> LSP.Uri -> LineNum -> Int -> AppM ()
-shiftSymbolsAfterLine conn uri lineNum delta = do
+shiftSymbolsAfterLine :: LSP.Uri -> LineNum -> Int -> AppM ()
+shiftSymbolsAfterLine uri lineNum delta = do
+  conn <- view conn
   when (delta /= 0) do
     liftIO $
       execute

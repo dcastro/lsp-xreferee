@@ -149,8 +149,7 @@ runHandler fileEvents = do
             -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
             -- this uri as a prefix (in case this was a directory).
             Log.debug $ "didChangeWatchedFiles: Deleted: Deleting symbols for file/directory: " <> uri.getUri
-            conn <- view conn
-            Db.deleteSymbolsForFileOrDirectory conn uri
+            Db.deleteSymbolsForFileOrDirectory uri
   where
     isFileOpen :: (MonadLsp Config m) => Uri -> m Bool
     isFileOpen uri = do
