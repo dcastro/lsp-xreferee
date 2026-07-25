@@ -47,7 +47,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Haskell with Cabal
         if: ${{ !(matrix.os == 'windows' && matrix.arch == 'arm64') }}
@@ -98,7 +98,7 @@ jobs:
         run: cabal update
 
       - name: Restore Cabal cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ${{ steps.cabal-paths.outputs.cabal_store }}
