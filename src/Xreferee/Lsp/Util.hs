@@ -69,7 +69,10 @@ shouldHandleFileOrDir uri = do
     * The ".git" folder
     * Paths outside the git repo root
     * Symlinks
-    * Paths that don't exist on disk
+
+  NOTE: Paths that don't exist on disk ARE not necessarily excluded.
+  This function is also used before we handle `FileChangeType_Deleted` events.
+
 -}
 doShouldHandleFileOrDir :: FilePath -> IO ShouldHandle
 doShouldHandleFileOrDir fp = do
@@ -93,7 +96,8 @@ doShouldHandleFileOrDir fp = do
               else rethrowIO e
       case isSymlink of
         Nothing ->
-          throwError $ DontHandle "does not exist"
+          -- File does not exist
+          pure ()
         Just True ->
           throwError $ DontHandle "symlink"
         Just False ->

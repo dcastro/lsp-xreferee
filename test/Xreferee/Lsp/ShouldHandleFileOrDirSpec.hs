@@ -62,9 +62,9 @@ spec = describe "shouldHandleFileOrDir" $ do
         check "untracked-binary.md" (DontHandle "binary file")
 
         -- does not exist
-        check "non-existent.md" (DontHandle "does not exist")
-        check "non-existent-ignored.md" (DontHandle "does not exist")
-        check "non-existent-dir/file.md" (DontHandle "does not exist")
+        check "non-existent.md" DoHandle
+        check "non-existent-ignored.md" (DontHandle "untracked & git-ignored")
+        check "non-existent-dir/file.md" DoHandle
 
         -- is directory (empty, untracked)
         Dir.createDirectory "dir-empty"
@@ -97,7 +97,7 @@ spec = describe "shouldHandleFileOrDir" $ do
         --  is outside the repo root (is directory)
         check ".." (DontHandle "outside git repo")
         --  is outside the repo root (is invalid path)
-        check "../non-existent.md" (DontHandle "does not exist")
+        check "../non-existent.md" (DontHandle "outside git repo")
         --  is outside the repo root, but is a file tracked by ANOTHER git repo.
         fileFromThisRepo <- Dir.makeAbsolute "tracked.md"
         withGitRepo "" [] $ do
