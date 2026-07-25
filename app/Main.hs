@@ -1,7 +1,7 @@
 module Main (main) where
 
-import ClassyPrelude
 import Xreferee.Lsp qualified as Lsp
+import Xreferee.Lsp.Prelude
 
 main :: IO ()
 main = Lsp.main

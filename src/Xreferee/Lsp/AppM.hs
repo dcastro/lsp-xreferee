@@ -2,16 +2,14 @@
 
 module Xreferee.Lsp.AppM where
 
-import ClassyPrelude
 import Colog.Core (LogAction (..), WithSeverity (..))
 import Control.Lens
 import Data.Aeson qualified as J
 import Data.Map.Strict qualified as SM
-import Language.LSP.Protocol.Types (Uri)
+import Database.SQLite.Simple (Connection)
 import Language.LSP.Server as LSP
-import UnliftIO qualified as Unlift
+import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.TH (classyIdRules)
-import Xreferee.Lsp.Types (Symbols)
 
 type AppM = ReaderT AppData (LspM Config)
 
@@ -47,12 +45,13 @@ data AppData = AppData
 
 data AppEnv = AppEnv
   { logger :: AppLogger,
-    -- | The current working directory, split with `splitDirectories`.
-    repoRootDir :: [FilePath],
+    -- | The current working directory.
+    repoRootDir :: FilePath,
     -- | Whether to log the payloads of LSP requests / notifications
     -- (at the debug level, to the logfile, if one is supplied).
     -- Can be very verbose e.g. when a large file is opened.
-    logPayloads :: Bool
+    logPayloads :: Bool,
+    conn :: Connection
   }
 
 -- `logger` is a polymorphic field, and GHC does not resolve
@@ -72,14 +71,14 @@ getLogger AppEnv {logger} = logger
 ----------------------------------------------------------------------------
 
 data AppState = AppState
-  { symbols :: Symbols,
+  { -- | True if the symbols database has been modified since the last time diagnostics were sent to the client.
+    isDbDirty :: Bool,
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set Uri,
     fileVersions :: SM.Map Uri Int32,
-    -- | Keep track of which files are ignored, see @(ref:shouldHandleFile)
+    -- | Keep track of which files are ignored, see @(ref:shouldHandleFileOrDir)
     shouldHandleFiles :: SM.Map Uri Bool
   }
-  deriving stock (Show)
 
 ----------------------------------------------------------------------------
 -- Lenses
@@ -98,17 +97,14 @@ instance HasAppEnv AppData where
 getState :: AppM AppState
 getState = do
   appData <- ask
-  liftIO $ readMVar appData.state
+  readMVar appData.state
 
-----------------------------------------------------------------------------
--- Utils
-----------------------------------------------------------------------------
+putState :: AppState -> AppM ()
+putState newState = do
+  appData <- ask
+  modifyMVar_ appData.state \_ -> pure newState
 
--- | Modify the app state, without sending diagnostics to the client.
--- This is useful for operations that we know won't change the symbols, and thus won't change the diagnostics
---
--- You should prefer @(ref:modifyState)
-modifyStateWithoutDiagnostics :: (AppState -> AppM (AppState, a)) -> AppM a
-modifyStateWithoutDiagnostics act = do
-  env <- ask
-  Unlift.modifyMVar env.state act
+modifyState :: (AppState -> AppState) -> AppM ()
+modifyState f = do
+  appData <- ask
+  modifyMVar_ appData.state \appState -> pure (f appState)

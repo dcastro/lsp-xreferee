@@ -1,6 +1,5 @@
 module Xreferee.Lsp.FileWatchers where
 
-import ClassyPrelude
 import Colog.Core qualified as L
 import Control.Lens
 import Language.LSP.Protocol.Lens qualified as LSP
@@ -10,10 +9,11 @@ import Language.LSP.Server qualified as LSP
 import Prettyprinter
 import System.FilePath qualified as FP
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Handlers qualified as Handlers
 import Xreferee.Lsp.Handlers.DidChangeGitIgnore qualified as Handlers
 import Xreferee.Lsp.Handlers.DidChangeWatchedFiles qualified as Handlers
 import Xreferee.Lsp.Log qualified as Log
-import Xreferee.Lsp.Util qualified as Util
+import Xreferee.Lsp.Prelude
 
 watchRepoFiles :: AppM ()
 watchRepoFiles = do
@@ -25,7 +25,7 @@ watchRepoFiles = do
   -- the `lsp` library keys dynamic registrations by method, so registering twice for the
   -- same method overwrites the first handler. Instead, we register a single handler that
   -- dispatches to the right internal handler.
-  let handler = dispatcher
+  let handler = Handlers.setupNotHandler dispatcher
 
   appLogger <- view logger
   let coreLogger = L.cmap (fmap (tshow . pretty)) appLogger
@@ -38,7 +38,7 @@ watchRepoFiles = do
       coreLogger
       LSP.SMethod_WorkspaceDidChangeWatchedFiles
       registrationOptions
-      (Util.timedNot handler)
+      handler
 
   case result of
     Nothing ->
@@ -64,7 +64,7 @@ dispatcher = \req -> do
         Nothing -> False
         Just fp -> FP.takeFileName fp == ".gitignore"
 
-mkFileWatcher :: [FilePath] -> Text -> LSP.FileSystemWatcher
+mkFileWatcher :: FilePath -> Text -> LSP.FileSystemWatcher
 mkFileWatcher repoRootDir ptrn =
   LSP.FileSystemWatcher
     { _globPattern =
@@ -74,7 +74,7 @@ mkFileWatcher repoRootDir ptrn =
               { -- Watch every file in this git repo, not JUST in this workspace folder.
                 -- Files in a git repo can all reference each other.
                 -- If the user opens the editor in a subdirectory of the git repo, we still want to watch all files in the repo.
-                _baseUri = LSP.InR $ LSP.filePathToUri $ FP.joinPath repoRootDir,
+                _baseUri = LSP.InR $ LSP.filePathToUri repoRootDir,
                 _pattern = LSP.Pattern ptrn
               },
       _kind = Nothing

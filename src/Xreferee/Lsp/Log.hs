@@ -1,6 +1,5 @@
 module Xreferee.Lsp.Log where
 
-import ClassyPrelude
 import Colog.Core (Severity (..), WithSeverity (..), (<&))
 import Control.Lens
 import Data.Text qualified as T
@@ -9,6 +8,7 @@ import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Server (MonadLsp)
 import Text.Pretty.Simple (pShowNoColor)
 import Xreferee.Lsp.AppM (HasAppEnv, logPayloads, logger)
+import Xreferee.Lsp.Prelude
 
 logReq :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => (Show (LSP.MessageParams a)) => LSP.TRequestMessage a -> m ()
 logReq msg = do

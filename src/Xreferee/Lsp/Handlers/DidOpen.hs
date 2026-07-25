@@ -1,16 +1,14 @@
 module Xreferee.Lsp.Handlers.DidOpen where
 
-import ClassyPrelude hiding (Handler)
 import Control.Lens hiding (Indexable, Iso)
 import Data.Map.Strict qualified as SM
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
-import Language.LSP.Protocol.Types (Uri)
 import Language.LSP.Server as LSP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Log qualified as Log
-import Xreferee.Lsp.SendDiagnostics (modifyState)
-import Xreferee.Lsp.Util qualified as Util
+import Xreferee.Lsp.Prelude
+import Xreferee.Lsp.Symbols qualified as Symbols
 
 -- | Handle `didOpen` notifications.
 --
@@ -30,15 +28,12 @@ handleDidOpen = \req -> do
   let fileVersion = req ^. LSP.params . LSP.textDocument . LSP.version
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text . to fromStrict . to encodeUtf8
 
-  modifyState \appState -> do
-    if not (checkIsDirty uri fileVersion appState)
-      then
-        pure appState
-      else do
-        pure $ Util.loadSymbolsForFile uri contents fileVersion appState
+  appState <- getState
+  when (checkIfBufferIsDirty uri fileVersion appState) do
+    Symbols.loadSymbolsForFile uri contents fileVersion
   where
-    checkIsDirty :: Uri -> Int32 -> AppState -> Bool
-    checkIsDirty uri fileVersion appState =
+    checkIfBufferIsDirty :: Uri -> Int32 -> AppState -> Bool
+    checkIfBufferIsDirty uri fileVersion appState =
       let lastSeenVersion = SM.findWithDefault 1 uri appState.fileVersions
        in -- NOTE: versions are not strictly monotonic.
           -- If a file is changed on disk (e.g. with `echo "#\(ref:test4)" >> file.md`), AND the file is not currently opened in vscode,

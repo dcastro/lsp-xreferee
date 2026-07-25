@@ -1,0 +1,16 @@
+with-compiler: ghc-9.14.1
+packages:
+  ./
+
+source-repository-package
+  type: git
+  location: https://github.com/brandonchinn178/xreferee.git
+  tag: 9dd391904bd3ab4abb266089ba7a07d4cc724746
+
+allow-older: *
+allow-newer: *
+
+-- Strip debug symbols, reduce the binary size from 71 MB to 42 MB.
+-- `stack install` does this by default.
+package lsp-xreferee
+  executable-stripping: True

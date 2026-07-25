@@ -1,31 +1,21 @@
+{-# LANGUAGE MultiWayIf #-}
+
 module Xreferee.Lsp.Util where
 
-import ClassyPrelude hiding (Handler)
-import Control.Lens hiding (Indexable, Iso)
-import Control.Monad.State (StateT, get, put, runStateT)
+import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Data.ByteString.Lazy.Char8 qualified as LBS
-import Data.IxSet.Typed ((@+), (@<=), (@=), (@>=))
-import Data.IxSet.Typed qualified as Ix
-import Data.IxSet.Typed.Util qualified as Ix
-import Data.Map qualified as Map
 import Data.Map.Strict qualified as SM
-import Data.Set qualified as Set
 import Data.Text qualified as T
-import Data.Time.Clock.POSIX qualified as Time
-import Language.LSP.Protocol.Lens qualified as LSP
-import Language.LSP.Protocol.Message qualified as LSP
-import Language.LSP.Protocol.Types (Uri)
+import GHC.IO.Exception (IOErrorType (InappropriateType))
 import Language.LSP.Protocol.Types qualified as LSP
-import Language.LSP.Server (MonadLsp)
-import Language.LSP.Server qualified as LSP
+import System.Directory qualified as Dir
 import System.FilePath qualified as FP
-import XReferee.SearchResult (Anchor, Reference)
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Git (CheckIgnoreResult (..))
 import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Log qualified as Log
-import Xreferee.Lsp.Types (ColumnEnd (..), ColumnStart (..), LineNum (..), SymbolEntry (..), SymbolIxsConstraint, SymbolLoc (..), SymbolSet, Symbols (..))
-import Xreferee.Lsp.Types qualified as Types
+import Xreferee.Lsp.Prelude
 
 -- The options we use to search for symbols using the `xreferee` package.
 searchOpts :: X.SearchOpts
@@ -38,188 +28,153 @@ searchOpts =
       delims = X.defaultDelims
     }
 
-deleteSymbolsForFileOrDirectory :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> AppState -> m AppState
-deleteSymbolsForFileOrDirectory dirUri appState = do
-  let (anchors', deletedAnchorsUris) = delete @Anchor appState.symbols.anchors
-      (references', deletedReferencesUris) = delete @Reference appState.symbols.references
-      deletedUris = deletedAnchorsUris <> deletedReferencesUris
-
-  forM_ deletedAnchorsUris \deletedUri -> do
-    Log.debug $ "Deleted anchors from file: " <> tshow deletedUri
-  forM_ deletedReferencesUris \deletedUri -> do
-    Log.debug $ "Deleted references from file: " <> tshow deletedUri
-
-  pure
-    appState
-      { symbols =
-          appState.symbols
-            { anchors = anchors',
-              references = references'
-            },
-        fileVersions = SM.withoutKeys appState.fileVersions deletedUris
-      }
-  where
-    delete :: (SymbolIxsConstraint symbol) => SymbolSet symbol -> (SymbolSet symbol, Set Uri)
-    delete symbols =
-      let allUris = Ix.groupBy' @Uri symbols & Map.keysSet
-          urisToDelete = allUris & Set.filter (\u -> u `isWithinDir` dirUri)
-          symbols' = Ix.deleteMany symbols (\entries -> entries @+ Set.toList urisToDelete)
-       in (symbols', urisToDelete)
-
--- Checks if a URI points to a file within a given directory.
-isWithinDir :: Uri -> Uri -> Bool
-isWithinDir file dir =
-  addTrailingPathSeparator dir.getUri `T.isPrefixOf` file.getUri
-  where
-    -- We MUST add a trailing path separator.
-    -- Otherwise, `isWithinDir ./foobar/file.md ./foo` would incorrectly be `True`.
-    addTrailingPathSeparator :: Text -> Text
-    addTrailingPathSeparator =
-      T.pack . FP.addTrailingPathSeparator . T.unpack
-
--- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
-loadSymbolsForFile :: Uri -> LByteString -> Int32 -> AppState -> AppState
-loadSymbolsForFile uri contents fileVersion appState0 =
-  let -- Remove the symbols for this file
-      appState1 = deleteSymbolsForFile uri appState0
-
-      -- Parse the new symbols for this file
-      newSymbols = parseFile contents uri
-   in appState1
-        { symbols = appState1.symbols <> newSymbols,
-          -- Update the version we have for this file.
-          fileVersions = SM.insert uri fileVersion appState1.fileVersions
-        }
-  where
-    deleteSymbolsForFile :: Uri -> AppState -> AppState
-    deleteSymbolsForFile uri appState =
-      appState
-        { symbols =
-            appState.symbols
-              { anchors = Ix.deleteMany appState.symbols.anchors (\anchors -> anchors @= uri),
-                references = Ix.deleteMany appState.symbols.references (\references -> references @= uri)
-              },
-          fileVersions = SM.delete uri appState.fileVersions
-        }
-
-    parseFile :: LByteString -> Uri -> Symbols
-    parseFile contents uri =
-      (LBS.lines contents `zip` [0 ..])
-        <&> ( \(line, lineNum) ->
-                let (anchors, refs) = X.parseLabels X.defaultDelims line
-                    mkSymbolEntry :: forall symbol. symbol -> X.ColumnRange -> SymbolEntry symbol
-                    mkSymbolEntry sym columnRange =
-                      SymbolEntry
-                        { symbol = sym,
-                          loc =
-                            SymbolLoc
-                              { uri,
-                                lineNum,
-                                columnRange = Types.mkColumnRange columnRange
-                              }
-                        }
-                 in Symbols
-                      { anchors = anchors <&> uncurry mkSymbolEntry & Ix.fromList,
-                        references = refs <&> uncurry mkSymbolEntry & Ix.fromList
-                      }
-            )
-        & mconcat
-
-symbolLocToLspRange :: SymbolLoc -> LSP.Range
-symbolLocToLspRange loc =
-  LSP.Range
-    { _start =
-        LSP.Position
-          { _line = loc.lineNum,
-            _character = loc.columnRange.start
-          },
-      _end =
-        LSP.Position
-          { _line = loc.lineNum,
-            _character = loc.columnRange.end + 1
-          }
-    }
-
-symbolLocToLspLocation :: SymbolLoc -> LSP.Location
-symbolLocToLspLocation loc =
-  LSP.Location
-    { _uri = loc.uri,
-      _range = symbolLocToLspRange loc
-    }
-
-findSymbolAtPosition :: (SymbolIxsConstraint symbol) => Uri -> LSP.Position -> SymbolSet symbol -> Maybe (SymbolEntry symbol)
-findSymbolAtPosition reqUri reqPos symbols =
-  let reqLine = reqPos ^. LSP.line
-      reqColumn = reqPos ^. LSP.character
-   in Ix.getOne $
-        symbols
-          @= reqUri
-          @= LineNum reqLine
-          @<= ColumnStart reqColumn
-          @>= ColumnEnd reqColumn
-
--- | Wraps a request handler to log the time it took to handle the request.
-timedReq :: forall from (method :: LSP.Method from 'LSP.Request). LSP.Handler AppM method -> LSP.Handler AppM method
-timedReq handler = \req responder -> do
-  let method = req ^. LSP.method
-  t0 <- liftIO Time.getPOSIXTime
-  handler req responder
-  t1 <- liftIO Time.getPOSIXTime
-  let duration = t1 - t0
-  Log.debugP ("Handled " <> tshow method <> " in") duration
-
--- | Wraps a notification handler to log the time it took to handle the notification.
-timedNot :: forall from (method :: LSP.Method from 'LSP.Notification). LSP.Handler AppM method -> LSP.Handler AppM method
-timedNot handler = \req -> do
-  let method = req ^. LSP.method
-  t0 <- liftIO Time.getPOSIXTime
-  handler req
-  t1 <- liftIO Time.getPOSIXTime
-  let duration = t1 - t0
-  Log.debugP ("Handled " <> tshow method <> " in") duration
-
--- | Checks whether we should ignore or process a given file.
+-- | Checks whether we should ignore or process a given file or directory.
 --
--- We ignore the `.git` folder, files ignored by git, and files outside the workspace.
---
--- #(ref:shouldHandleFile)
-shouldHandleFile :: Uri -> AppM Bool
-shouldHandleFile uri = do
-  modifyStateWithoutDiagnostics \appState -> do
-    (should, appState) <- flip runStateT appState $ shouldHandleFile' uri
-    pure (appState, should)
-
--- NOTE: we can't have `(MonadState s m, MonadLsp c m)` because `StateT` does not and cannot implement `MonadLsp`.
--- `MonadLsp` implies `MonadUnliftIO`, and `MonadUnliftIO`, by definition, does not support stateful monads like `StateT`.
-shouldHandleFile' :: (MonadReader r m, HasAppEnv r, MonadLsp config m) => Uri -> StateT AppState m Bool
-shouldHandleFile' uri = do
-  repoRootDir <- view repoRootDir
-  appState0 <- get
+-- #(ref:shouldHandleFileOrDir)
+shouldHandleFileOrDir :: Uri -> AppM Bool
+shouldHandleFileOrDir uri = do
+  appState0 <- getState
   -- Check if we have this result cached from a previous check.
   case SM.lookup uri appState0.shouldHandleFiles of
     Just should -> pure should
     Nothing -> do
       should <- case LSP.uriToFilePath uri of
-        Nothing -> pure False
-        Just fp ->
-          let fp' = FP.splitDirectories fp
-           in -- Ignore .git files
-              if ".git" `elem` fp'
-                then pure False
-                else
-                  -- If the file is outside the git repo, ignore it.
-                  if not (repoRootDir `isPrefixOf` fp')
-                    then pure False
-                    else do
-                      -- If the file is ignored by git, don't handle it.
-                      -- If the file is binary, don't handle it.
-                      ignored <- liftIO $ Git.checkIgnore fp
-                      isBinary <- liftIO $ Git.isBinaryFile fp
-                      pure $ not ignored && not isBinary
+        -- `uriToFilePath` returns `Nothing` for any URI that doesn't map to a
+        -- filesystem path, i.e. anything whose scheme isn't `file:`. VSCode's
+        -- built-in Git extension routinely sends us events for virtual documents
+        -- under the `git:` scheme (used for diff/timeline views), and other
+        -- extensions use schemes like `untitled:` or `vscode-*`. None of these
+        -- exist on disk, so there's nothing for us to process. This is expected,
+        -- not an error, so we quietly decline to handle them rather than throwing.
+        Nothing -> pure $ DontHandle "non-file URI scheme"
+        Just fp -> liftIO $ doShouldHandleFileOrDir fp
 
-      put $ appState0 {shouldHandleFiles = SM.insert uri should appState0.shouldHandleFiles}
+      shouldBool <- case should of
+        DoHandle -> pure True
+        DontHandle reason -> do
+          Log.debug $ "Ignoring file: '" <> uri.getUri <> "' (" <> reason <> ")"
+          pure False
 
-      when (not should) do
-        lift $ Log.debug $ "Ignoring file: " <> tshow uri
+      -- Update the cache
+      putState $ appState0 {shouldHandleFiles = SM.insert uri shouldBool appState0.shouldHandleFiles}
 
-      pure should
+      pure shouldBool
+
+{-
+  Checks whether we should ignore or process a given file or directory.
+
+  We don't handle:
+    * Untracked & git-ignored files
+    * Binary files
+    * The ".git" folder
+    * Paths outside the git repo root
+    * Symlinks
+    * Paths that don't exist on disk
+-}
+doShouldHandleFileOrDir :: FilePath -> IO ShouldHandle
+doShouldHandleFileOrDir fp = do
+  result <- runExceptT do
+    checkSymlink
+    checkUntrackedIgnored
+    -- `git check-ignore` will not flag the `.git` folder, so we have to check it manually
+    checkIsInGitDir
+    checkIsBinaryFile
+    pure DoHandle
+
+  pure $ either id id result
+  where
+    checkSymlink :: ExceptT ShouldHandle IO ()
+    checkSymlink = do
+      isSymlink <-
+        liftIO $
+          (Just <$> Dir.pathIsSymbolicLink fp) `catchNoPropagate` \e@(ExceptionWithContext _ inner) ->
+            if isDoesNotExistError inner
+              then pure Nothing
+              else rethrowIO e
+      case isSymlink of
+        Nothing ->
+          throwError $ DontHandle "does not exist"
+        Just True ->
+          throwError $ DontHandle "symlink"
+        Just False ->
+          pure ()
+
+    checkUntrackedIgnored :: ExceptT ShouldHandle IO ()
+    checkUntrackedIgnored = do
+      liftIO (Git.checkIgnore fp) >>= \case
+        UntrackedIgnored ->
+          -- If it's untracked and git-ignored, we know for sure we don't want to handle it
+          throwError $ DontHandle "untracked & git-ignored"
+        OutsideRepo ->
+          -- If it's outside the repo root, we know for sure we don't want to handle it
+          throwError $ DontHandle "outside git repo"
+        NotUntrackedIgnored ->
+          pure ()
+
+    checkIsInGitDir :: ExceptT ShouldHandle IO ()
+    checkIsInGitDir = do
+      when (".git" `elem` FP.splitDirectories fp) do
+        throwError $ DontHandle "in .git dir"
+
+    checkIsBinaryFile :: ExceptT ShouldHandle IO ()
+    checkIsBinaryFile = do
+      liftIO (Dir.doesDirectoryExist fp) >>= \case
+        True ->
+          -- If this is a directory, we short-circuit here.
+          -- We don't want to run `git ls-files` on directories,
+          -- because it will (unnecessarily) recursively traverse it.
+          -- We can't use `--directory` to disable traversal because it's incompatible with `-eol`,
+          -- which we need to check whether it's a binary file.
+          pure ()
+        False -> do
+          -- If it's a file, we need to check whether it's a binary file
+          liftIO (Git.lsFiles fp) >>= \case
+            Nothing ->
+              -- The file is not in this git repo
+              throwError $ DontHandle "outside git repo"
+            Just stdout -> do
+              {-
+                  When `git ls-files` is run with `--eol`, it'll print file info like this:
+
+                  ```
+                  i/      w/none  attr/                   file2.md
+                  i/      w/-text attr/                   lsp-xreferee.eventlog
+                  i/      w/lf    attr/                   lsp-xreferee.hp
+                  i/      w/lf    attr/                   lsp-xreferee.prof
+                  i/none  w/none  attr/                   file.md
+                  ```
+
+                  Binary files will be marked with `w/-text` in the output.
+              -}
+              let isBinary = "w/-text" `T.isInfixOf` stdout
+              when isBinary do
+                throwError $ DontHandle "binary file"
+
+data ShouldHandle
+  = DoHandle
+  | DontHandle Text
+  deriving stock (Show, Eq)
+
+-- | Reads a file's contents, or returns `Nothing` if the file no longer exists
+-- or is actually a directory.
+--
+-- >>> import Data.Either (isRight)
+-- >>> isRight <$> readFileIfExists "README.md"
+-- True
+-- >>> readFileIfExists "invalid.md"
+-- Left RFNotExists
+-- >>> readFileIfExists "src"
+-- Left RFIsDirectory
+readFileIfExists :: (MonadIO m) => FilePath -> m (Either ReadFileError LBS.ByteString)
+readFileIfExists fp =
+  liftIO $
+    (Right <$> LBS.readFile fp) `catchNoPropagate` \e@(ExceptionWithContext _ inner) ->
+      if
+        | isDoesNotExistError inner -> pure (Left RFNotExists)
+        | ioeGetErrorType inner == InappropriateType -> pure (Left RFIsDirectory)
+        | otherwise -> rethrowIO e
+
+data ReadFileError
+  = RFNotExists
+  | RFIsDirectory
+  deriving stock (Show, Eq)
