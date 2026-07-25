@@ -15,7 +15,6 @@ import Language.LSP.Protocol.Types (UInt)
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import Language.LSP.VFS qualified as VFS
-import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
@@ -35,22 +34,17 @@ handleDidChange = \req -> do
   conn <- view conn
   ApplyChangesResult linesToParse <- applyChanges conn uri diffs
 
-  forM_ linesToParse \lineNum -> do
-    let line =
-          rope
-            & Rope.getLine (fromIntegral @UInt @Word lineNum)
-            & Rope.toText
-            & LT.fromStrict
-            & encodeUtf8
-    let (anchors, refs) = X.parseLabels X.defaultDelims line
-
-    forM_ anchors \(anchor, columnRange) -> do
-      let symbol = Symbols.mkSymbol anchor uri (Db.LineNum lineNum) columnRange
-      Db.insertAnchor conn symbol
-
-    forM_ refs \(ref, columnRange) -> do
-      let symbol = Symbols.mkSymbol ref uri (Db.LineNum lineNum) columnRange
-      Db.insertReference conn symbol
+  -- Parse the lines that were modified by the diffs, and insert the new anchors/refs into the DB.
+  let parseLine lineNum =
+        rope
+          & Rope.getLine (fromIntegral @UInt @Word lineNum)
+          & Rope.toText
+          & LT.fromStrict
+          & encodeUtf8
+          & Symbols.parseLine uri (Db.LineNum lineNum)
+  let (anchors, refs) = foldMap parseLine linesToParse
+  Db.insertAnchors conn anchors
+  Db.insertReferences conn refs
 
   -- Update the version we have for this file.
   modifyState \appState ->

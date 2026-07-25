@@ -24,20 +24,24 @@ type UriCache = Map FilePath LSP.Uri
 
 insertSearchResult :: Connection -> FilePath -> Set LSP.Uri -> X.SearchResult -> AppM ()
 insertSearchResult conn repoRootDir excludedFiles searchResult = do
-  flip evalStateT mempty do
-    forM_ (Map.toList searchResult.anchors) \(anchor, locs) -> do
-      forM_ locs \loc -> do
-        uri <- convertFilePathToUri repoRootDir loc.filepath
-        when (Set.notMember uri excludedFiles) do
-          let symbol = mkSymbol anchor uri (LineNum $ xToLsp loc.lineNum) loc.columnRange
-          lift $ Db.insertAnchor conn symbol
-    forM_ (Map.toList searchResult.references) \(reference, locs) -> do
-      forM_ locs \loc -> do
-        uri <- convertFilePathToUri repoRootDir loc.filepath
-        when (Set.notMember uri excludedFiles) do
-          let symbol = mkSymbol reference uri (LineNum $ xToLsp loc.lineNum) loc.columnRange
-          lift $ Db.insertReference conn symbol
+  (anchors, references) <- flip evalStateT mempty do
+    anchors <- toSymbols searchResult.anchors
+    references <- toSymbols searchResult.references
+    pure (anchors, references)
+  Db.insertAnchors conn anchors
+  Db.insertReferences conn references
   where
+    -- Converts all the labels' locations into `Symbol`s, discarding the ones in excluded files.
+    toSymbols :: (X.Label label, Monad m) => Map label [X.LabelLoc] -> StateT UriCache m [Symbol]
+    toSymbols labels =
+      fmap concat $ forM (Map.toList labels) \(label, locs) ->
+        fmap catMaybes $ forM locs \loc -> do
+          uri <- convertFilePathToUri repoRootDir loc.filepath
+          pure $
+            if Set.member uri excludedFiles
+              then Nothing
+              else Just $ mkSymbol label uri (LineNum $ xToLsp loc.lineNum) loc.columnRange
+
     convertFilePathToUri :: (Monad m) => FilePath -> FilePath -> StateT UriCache m LSP.Uri
     convertFilePathToUri repoRootDir fp = do
       cache <- get
@@ -59,19 +63,23 @@ loadSymbolsForFile uri contents fileVersion = do
   Db.deleteSymbolsForFile conn uri
 
   -- Parse the new symbols for this file.
-  forM_ (LBS.lines contents `zip` [0 ..]) \(line, lineNum) -> do
-    let (anchors, refs) = X.parseLabels X.defaultDelims line
-
-    forM_ anchors \(anchor, columnRange) -> do
-      let symbol = mkSymbol anchor uri (LineNum lineNum) columnRange
-      Db.insertAnchor conn symbol
-
-    forM_ refs \(ref, columnRange) -> do
-      let symbol = mkSymbol ref uri (LineNum lineNum) columnRange
-      Db.insertReference conn symbol
+  let (anchors, refs) =
+        foldMap
+          (\(line, lineNum) -> parseLine uri (LineNum lineNum) line)
+          (LBS.lines contents `zip` [0 ..])
+  Db.insertAnchors conn anchors
+  Db.insertReferences conn refs
 
   -- Update the version we have for this file.
   modifyState \appState1 -> appState1 {fileVersions = SM.insert uri fileVersion appState1.fileVersions}
+
+-- | Parses the anchors and references found in a single line of a file.
+parseLine :: LSP.Uri -> LineNum -> LByteString -> ([Symbol], [Symbol])
+parseLine uri lineNum line =
+  let (anchors, refs) = X.parseLabels X.defaultDelims line
+      anchorSymbols = anchors <&> (\(anchor, columnRange) -> mkSymbol anchor uri lineNum columnRange)
+      refSymbols = refs <&> (\(ref, columnRange) -> mkSymbol ref uri lineNum columnRange)
+   in (anchorSymbols, refSymbols)
 
 -- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
 xToLsp :: Int -> LSP.UInt

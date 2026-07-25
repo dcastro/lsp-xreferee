@@ -83,23 +83,27 @@ new = liftIO do
 
   pure conn
 
-insertAnchor :: Connection -> Symbol -> AppM ()
-insertAnchor conn anchor = do
-  liftIO $
-    execute
-      conn
-      [sql|INSERT INTO anchors (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
-      anchor
-  setDirty
+insertAnchors :: Connection -> [Symbol] -> AppM ()
+insertAnchors conn anchors =
+  unless (null anchors) do
+    liftIO $
+      withTransaction conn $
+        executeMany
+          conn
+          [sql|INSERT INTO anchors (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
+          anchors
+    setDirty
 
-insertReference :: Connection -> Symbol -> AppM ()
-insertReference conn reference = do
-  liftIO $
-    execute
-      conn
-      [sql|INSERT INTO refs (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
-      reference
-  setDirty
+insertReferences :: Connection -> [Symbol] -> AppM ()
+insertReferences conn references =
+  unless (null references) do
+    liftIO $
+      withTransaction conn $
+        executeMany
+          conn
+          [sql|INSERT INTO refs (name, uri, line, column_start, column_end) VALUES (?, ?, ?, ?, ?)|]
+          references
+    setDirty
 
 deleteSymbolsExcept :: Connection -> [LSP.Uri] -> AppM ()
 deleteSymbolsExcept conn uris = do
