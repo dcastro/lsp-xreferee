@@ -143,6 +143,9 @@ withGitRepo gitignore files action = do
     Dir.createDirectoryIfMissing True gitdir
     Dir.withCurrentDirectory gitdir . captureLogs gitlog $ do
       git ["init"]
+      -- Set identity locally so commits work even without a global gitconfig (e.g. in CI).
+      git ["config", "user.email", "test@example.com"]
+      git ["config", "user.name", "Test"]
       -- Write every file to disk.
       forM_ files $ \(_, relpath, content) -> do
         let fp = gitdir </> relpath

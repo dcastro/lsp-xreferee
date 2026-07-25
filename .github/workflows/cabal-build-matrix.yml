@@ -17,6 +17,61 @@ env:
   CABAL_VERSION: "latest"
 
 jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    env:
+      ORMOLU_VERSION: "0.8.1.1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Haskell with Cabal
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+
+      - name: Set up just
+        uses: extractions/setup-just@v4
+
+      - name: Install ormolu
+        run: |
+          curl -sSL -o ormolu.zip "https://github.com/tweag/ormolu/releases/download/${{ env.ORMOLU_VERSION }}/ormolu-x86_64-linux.zip"
+          unzip -o ormolu.zip -d /usr/local/bin
+          chmod +x /usr/local/bin/ormolu
+          ormolu --version
+
+      - name: Resolve Cabal cache paths
+        id: cabal-paths
+        run: echo "cabal_store=$(cabal path --output-format=key-value | grep '^store-dir:' | sed 's/^store-dir:\s*//')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Cabal cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ steps.cabal-paths.outputs.cabal_store }}
+            dist-newstyle
+          key: ubuntu-checks-cabal-${{ hashFiles('cabal.project', 'cabal.project.freeze', 'lsp-xreferee.cabal') }}
+          restore-keys: |
+            ubuntu-checks-cabal-
+
+      - name: Update Cabal package index
+        run: cabal update
+
+      - name: Install xreferee
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          cabal install exe:xreferee --overwrite-policy=always --installdir="$HOME/.local/bin"
+
+      - name: Run checks
+        run: just checks
+
+      - name: Verify ormolu left no uncommitted changes
+        run: git diff --exit-code
+
   build:
     name: ${{ matrix.os }}-${{ matrix.arch }}
     runs-on: ${{ matrix.runs_on }}
