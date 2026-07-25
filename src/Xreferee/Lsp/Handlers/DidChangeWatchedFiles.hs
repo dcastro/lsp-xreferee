@@ -8,7 +8,6 @@ import Language.LSP.Protocol.Message qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
 import Language.LSP.Server as LSP
 import System.Directory qualified as Dir
-import System.FilePath qualified as FP
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
@@ -52,13 +51,9 @@ handleDidChangeWatchedFiles = \req -> do
     -- Checks if a URI points to a file within a given directory.
     isWithinDir :: Uri -> Uri -> Bool
     isWithinDir file dir =
-      addTrailingPathSeparator dir.getUri `T.isPrefixOf` file.getUri
-      where
-        -- We MUST add a trailing path separator.
-        -- Otherwise, `isWithinDir ./foobar/file.md ./foo` would incorrectly be `True`.
-        addTrailingPathSeparator :: Text -> Text
-        addTrailingPathSeparator =
-          T.pack . FP.addTrailingPathSeparator . T.unpack
+      -- We MUST add a trailing path separator.
+      -- Otherwise, `isWithinDir ./foobar/file.md ./foo` would incorrectly be `True`.
+      Util.uriAddTrailingPathSeparator dir `T.isPrefixOf` file.getUri
 
 -- | Proccess a list of file events.
 --

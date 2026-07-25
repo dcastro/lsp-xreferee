@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
   * Don't follow symlinks (to match `xreferee`'s behavior)
   * When a folder is created, individually check whether each file should be handled or ignored
   * Correctly handle file deletion
+  * Correctly handle file/folder deletion on Windows
 
 ## 0.0.2
 

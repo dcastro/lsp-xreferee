@@ -10,10 +10,10 @@ import Database.SQLite.Simple.QQ (sql)
 import Database.SQLite.Simple.ToField (ToField (..))
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
-import System.FilePath qualified as FP
 import Xreferee.Lsp.AppM (AppM, AppState (..), HasAppEnv (conn), modifyState)
 import Xreferee.Lsp.Orphans ()
 import Xreferee.Lsp.Prelude
+import Xreferee.Lsp.Util qualified as Util
 
 -- | A symbol (anchor or reference), built from xreferee's `XReferee.SearchResult`, except:
 --    * We use `file://` URIs with absolute paths instead of relative file paths
@@ -190,24 +190,21 @@ deleteSymbolsForFile uri = do
 deleteSymbolsForFileOrDirectory :: LSP.Uri -> AppM ()
 deleteSymbolsForFileOrDirectory uri = do
   conn <- view conn
-  let dirPrefix = addTrailingPathSeparator uri <> "%"
+
+  -- We MUST add a trailing path separator to a uri like `./foo`,
+  -- otherwise, `./foobar/file.md LIKE ./foo%` would incorrectly be `True`.
+  -- Instead, the clause should be `./foobar/file.md LIKE ./foo/%`.
+  let dirPrefix = Util.uriAddTrailingPathSeparator uri <> "%"
+
+  -- We can't check whether this uri points to a file or a directory, because
+  -- by the time we get here the path has already been deleted from disk.
+  -- So we handle both cases: `uri = ?` deletes the symbols for the uri itself
+  -- (if it was a file), and `uri LIKE ?` deletes the symbols for everything
+  -- underneath it (if it was a directory).
   liftIO $ execute conn [sql|DELETE FROM anchors WHERE uri = ? OR uri LIKE ?|] (uri, dirPrefix)
   checkDirty conn
   liftIO $ execute conn [sql|DELETE FROM refs WHERE uri = ? OR uri LIKE ?|] (uri, dirPrefix)
   checkDirty conn
-  where
-    -- We can't check whether this uri points to a file or a directory, because
-    -- by the time we get here the path has already been deleted from disk.
-    -- So we handle both cases: `uri = ?` deletes the symbols for the uri itself
-    -- (if it was a file), and `uri LIKE ?` deletes the symbols for everything
-    -- underneath it (if it was a directory).
-    --
-    -- We MUST add a trailing path separator to a uri like `./foo`,
-    -- otherwise, `./foobar/file.md LIKE ./foo%` would incorrectly be `True`.
-    -- Instead, the clause should be `./foobar/file.md LIKE ./foo/%`.
-    addTrailingPathSeparator :: LSP.Uri -> Text
-    addTrailingPathSeparator =
-      T.pack . FP.addTrailingPathSeparator . T.unpack . LSP.getUri
 
 findUnusedAnchors :: AppM [Symbol]
 findUnusedAnchors = do

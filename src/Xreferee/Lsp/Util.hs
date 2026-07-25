@@ -28,6 +28,21 @@ searchOpts =
       delims = X.defaultDelims
     }
 
+-- | Appends a trailing path separator to a uri, unless it already has one.
+--
+-- This is needed whenever we want to check whether a uri is contained within a
+-- directory: without the trailing separator, `./foobar/file.md` would incorrectly
+-- be considered to be within `./foo`.
+--
+-- NOTE: We deliberately don't use `System.FilePath.addTrailingPathSeparator` here,
+-- because it appends the platform's path separator, which is `\` on Windows.
+-- Uris always use `/`, regardless of the platform.
+uriAddTrailingPathSeparator :: Uri -> Text
+uriAddTrailingPathSeparator uri =
+  if "/" `T.isSuffixOf` uri.getUri
+    then uri.getUri
+    else uri.getUri <> "/"
+
 -- | Checks whether we should ignore or process a given file or directory.
 --
 -- #(ref:shouldHandleFileOrDir)
