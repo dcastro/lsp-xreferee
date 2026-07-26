@@ -18,7 +18,46 @@ source-repository head
   type: git
   location: https://github.com/githubuser/lsp-xreferee
 
+common extensions
+  default-extensions:
+    BlockArguments
+    DeriveAnyClass
+    DuplicateRecordFields
+    ImpredicativeTypes
+    NoFieldSelectors
+    NoImplicitPrelude
+    OverloadedRecordDot
+    OverloadedStrings
+    StrictData
+
+common warnings
+  ghc-options:
+    -Weverything
+    -Wno-name-shadowing
+    -Wno-missing-exported-signatures
+    -Wno-missing-import-lists
+    -Wno-missing-export-lists
+    -Wno-missed-specialisations
+    -Wno-all-missed-specialisations
+    -Wno-unsafe
+    -Wno-safe
+    -Wno-missing-local-signatures
+    -Wno-monomorphism-restriction
+    -Wno-implicit-prelude
+    -Wno-prepositive-qualified-module
+    -Wno-missing-safe-haskell-mode
+    -Wno-unused-packages
+    -Wno-missing-kind-signatures
+    -Wno-missing-role-annotations
+
+common rts-options
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
 library
+  import: extensions, warnings
   exposed-modules:
     ExceptionUtil
     Xreferee.Lsp
@@ -54,36 +93,6 @@ library
   hs-source-dirs:
     src
 
-  default-extensions:
-    BlockArguments
-    DeriveAnyClass
-    DuplicateRecordFields
-    ImpredicativeTypes
-    NoFieldSelectors
-    NoImplicitPrelude
-    OverloadedRecordDot
-    OverloadedStrings
-    StrictData
-
-  ghc-options:
-    -Weverything
-    -Wno-name-shadowing
-    -Wno-missing-exported-signatures
-    -Wno-missing-import-lists
-    -Wno-missing-export-lists
-    -Wno-missed-specialisations
-    -Wno-all-missed-specialisations
-    -Wno-unsafe
-    -Wno-safe
-    -Wno-missing-local-signatures
-    -Wno-monomorphism-restriction
-    -Wno-implicit-prelude
-    -Wno-prepositive-qualified-module
-    -Wno-missing-safe-haskell-mode
-    -Wno-unused-packages
-    -Wno-missing-kind-signatures
-    -Wno-missing-role-annotations
-
   build-depends:
     aeson,
     base >=4.7 && <5,
@@ -115,6 +124,7 @@ library
   default-language: GHC2024
 
 executable lsp-xreferee
+  import: extensions, warnings, rts-options
   main-is: Main.hs
   other-modules:
     Paths_lsp_xreferee
@@ -125,41 +135,9 @@ executable lsp-xreferee
   hs-source-dirs:
     app
 
-  default-extensions:
-    BlockArguments
-    DeriveAnyClass
-    DuplicateRecordFields
-    ImpredicativeTypes
-    NoFieldSelectors
-    NoImplicitPrelude
-    OverloadedRecordDot
-    OverloadedStrings
-    StrictData
-
   ghc-options:
-    -- "-with-rtsopts=-N -p -hc -l-au -s/home/dc/lsp-xreferee.stats"
-    -- "-with-rtsopts=-N -hT -l-au -s/home/dc/lsp-xreferee.stats"
-    -Weverything
-    -Wno-name-shadowing
-    -Wno-missing-exported-signatures
-    -Wno-missing-import-lists
-    -Wno-missing-export-lists
-    -Wno-missed-specialisations
-    -Wno-all-missed-specialisations
-    -Wno-unsafe
-    -Wno-safe
-    -Wno-missing-local-signatures
-    -Wno-monomorphism-restriction
-    -Wno-implicit-prelude
-    -Wno-prepositive-qualified-module
-    -Wno-missing-safe-haskell-mode
-    -Wno-unused-packages
-    -Wno-missing-kind-signatures
-    -Wno-missing-role-annotations
-    -threaded
-    -rtsopts
-    -with-rtsopts=-N
-
+  -- "-with-rtsopts=-N -p -hc -l-au -s/home/dc/lsp-xreferee.stats"
+  -- "-with-rtsopts=-N -hT -l-au -s/home/dc/lsp-xreferee.stats"
   build-depends:
     base,
     classy-prelude,
@@ -168,6 +146,7 @@ executable lsp-xreferee
   default-language: GHC2024
 
 test-suite lsp-xreferee-test
+  import: extensions, warnings, rts-options
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
@@ -181,39 +160,6 @@ test-suite lsp-xreferee-test
 
   hs-source-dirs:
     test
-
-  default-extensions:
-    BlockArguments
-    DeriveAnyClass
-    DuplicateRecordFields
-    ImpredicativeTypes
-    NoFieldSelectors
-    NoImplicitPrelude
-    OverloadedRecordDot
-    OverloadedStrings
-    StrictData
-
-  ghc-options:
-    -Weverything
-    -Wno-name-shadowing
-    -Wno-missing-exported-signatures
-    -Wno-missing-import-lists
-    -Wno-missing-export-lists
-    -Wno-missed-specialisations
-    -Wno-all-missed-specialisations
-    -Wno-unsafe
-    -Wno-safe
-    -Wno-missing-local-signatures
-    -Wno-monomorphism-restriction
-    -Wno-implicit-prelude
-    -Wno-prepositive-qualified-module
-    -Wno-missing-safe-haskell-mode
-    -Wno-unused-packages
-    -Wno-missing-kind-signatures
-    -Wno-missing-role-annotations
-    -threaded
-    -rtsopts
-    -with-rtsopts=-N
 
   build-tool-depends:
     sydtest-discover:sydtest-discover
