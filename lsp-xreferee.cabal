@@ -4,9 +4,9 @@ version: 0.0.1
 description: Please see the README on GitHub at <https://github.com/githubuser/lsp-xreferee#readme>
 homepage: https://github.com/githubuser/lsp-xreferee#readme
 bug-reports: https://github.com/githubuser/lsp-xreferee/issues
-author: Author name here
-maintainer: example@example.com
-copyright: 2026 Author name here
+author: Diogo Castro
+maintainer: dc@diogocastro.com
+copyright: 2026 Diogo Castro
 license: BSD-3-Clause
 license-file: LICENSE
 build-type: Simple
