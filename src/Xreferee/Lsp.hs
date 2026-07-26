@@ -153,7 +153,6 @@ initialize appLogger _startupLogger env = do
     newMVar
       AppState
         { filesWithDiagnostics = Set.empty,
-          fileVersions = SM.empty,
           shouldHandleFiles = SM.empty,
           isDbDirty = False
         }

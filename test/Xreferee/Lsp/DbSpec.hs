@@ -50,7 +50,6 @@ runDb act = do
     newMVar
       AppState
         { filesWithDiagnostics = mempty,
-          fileVersions = mempty,
           shouldHandleFiles = mempty,
           isDbDirty = False
         }

@@ -30,8 +30,7 @@ reloadAllSymbols = do
   -- .gitignore changed, so we need to clear the `shouldHandleFiles` cache.
   modifyState \appState ->
     AppState
-      { fileVersions = appState.fileVersions,
-        -- Changes done to `.gitignore` invalidate the `shouldHandleFiles` cache
+      { -- Changes done to `.gitignore` invalidate the `shouldHandleFiles` cache
         shouldHandleFiles = mempty,
         filesWithDiagnostics = appState.filesWithDiagnostics,
         isDbDirty = appState.isDbDirty

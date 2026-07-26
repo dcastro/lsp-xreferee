@@ -26,6 +26,7 @@ common extensions
     ImpredicativeTypes
     NoFieldSelectors
     NoImplicitPrelude
+    OrPatterns
     OverloadedRecordDot
     OverloadedStrings
     StrictData

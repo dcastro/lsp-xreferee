@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
   * When a folder is created, individually check whether each file should be handled or ignored
   * Correctly handle file deletion
   * Correctly handle file/folder deletion on Windows
+  * Reparse file when the editor is opened with unsaved changes
 
 ## 0.0.2
 

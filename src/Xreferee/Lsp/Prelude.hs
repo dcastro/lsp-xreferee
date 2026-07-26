@@ -1,5 +1,6 @@
 module Xreferee.Lsp.Prelude
   ( module M,
+    whenJust,
   )
 where
 
@@ -67,10 +68,13 @@ import Data.Function as M
   ( (&),
   )
 import ExceptionUtil as M
-  ( -- Display exception with `ExceptionContext``
+  ( -- Display exception with `ExceptionContext`
     displayFullException,
   )
 import Language.LSP.Protocol.Types as M
   ( Uri (..),
   )
 import Xreferee.Lsp.Exception as M
+
+whenJust :: (Monad m) => Maybe a -> (a -> m ()) -> m ()
+whenJust = for_

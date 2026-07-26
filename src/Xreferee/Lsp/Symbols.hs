@@ -3,7 +3,6 @@ module Xreferee.Lsp.Symbols where
 import Control.Monad.State (StateT, evalStateT, get, modify)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map qualified as Map
-import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
 import Language.LSP.Protocol.Types qualified as LSP
 import XReferee.SearchResult qualified as X
@@ -53,8 +52,8 @@ insertSearchResult repoRootDir excludedFiles searchResult = do
           pure uri
 
 -- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
-loadSymbolsForFile :: Uri -> LByteString -> Int32 -> AppM ()
-loadSymbolsForFile uri contents fileVersion = do
+loadSymbolsForFile :: Uri -> LByteString -> AppM ()
+loadSymbolsForFile uri contents = do
   -- Delete the old symbols for this file.
   Db.deleteSymbolsForFile uri
 
@@ -65,9 +64,6 @@ loadSymbolsForFile uri contents fileVersion = do
           (LBS.lines contents `zip` [0 ..])
   Db.insertAnchors anchors
   Db.insertReferences refs
-
-  -- Update the version we have for this file.
-  modifyState \appState1 -> appState1 {fileVersions = SM.insert uri fileVersion appState1.fileVersions}
 
 -- | Parses the anchors and references found in a single line of a file.
 parseLine :: LSP.Uri -> LineNum -> LByteString -> ([Symbol], [Symbol])

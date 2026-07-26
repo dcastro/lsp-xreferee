@@ -177,6 +177,15 @@ data ShouldHandle
 -- | Reads a file's contents, or returns `Nothing` if the file no longer exists
 -- or is actually a directory.
 --
+-- WARNING: this does lazy IO, so the file may be deleted or changed after this function returns,
+-- and thus throw an exception while the bytestring is being consumed.
+--
+-- Also, the bytestring MUST be read to completion, otherwise the file handle will remain open until garbage collected.
+-- See the docs for `hGetContents`: https://hackage-content.haskell.org/package/bytestring-0.12.2.0/docs/Data-ByteString-Lazy.html#v:hGetContents
+-- > Chunks are read on demand, using the default chunk size.
+-- > File handles are closed on EOF if all the file is read, or through garbage collection otherwise.
+--
+--
 -- >>> import Data.Either (isRight)
 -- >>> isRight <$> readFileIfExists "README.md"
 -- True
@@ -187,6 +196,8 @@ data ShouldHandle
 readFileIfExists :: (MonadIO m) => FilePath -> m (Either ReadFileError LBS.ByteString)
 readFileIfExists fp =
   liftIO $
+    -- This uses lazy file IO, so we can only catch exceptions from OPENING the file,
+    -- not from reading it.
     (Right <$> LBS.readFile fp) `catchNoPropagate` \e@(ExceptionWithContext _ inner) ->
       if
         | isDoesNotExistError inner -> pure (Left RFNotExists)

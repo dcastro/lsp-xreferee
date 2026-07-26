@@ -2,7 +2,6 @@ module Xreferee.Lsp.Handlers.DidChange where
 
 import Control.Lens hiding (Indexable, Iso)
 import Data.Ix (inRange)
-import Data.Map.Strict qualified as SM
 import Data.Maybe qualified as Maybe
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -43,10 +42,6 @@ handleDidChange = \req -> do
   let (anchors, refs) = foldMap parseLine linesToParse
   Db.insertAnchors anchors
   Db.insertReferences refs
-
-  -- Update the version we have for this file.
-  modifyState \appState ->
-    appState {fileVersions = SM.insert uri (vf ^. VFS.lsp_version) appState.fileVersions}
 
 -- | Calculates which lines we'll need to reparse after applying the given diffs.
 -- Removes anchors/refs that are on lines that were modified by the diffs,
