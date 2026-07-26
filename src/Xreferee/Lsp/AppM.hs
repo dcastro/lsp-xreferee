@@ -104,7 +104,7 @@ putState newState = do
   appData <- ask
   modifyMVar_ appData.state \_ -> pure newState
 
-modifyState :: (AppState -> AppState) -> AppM ()
+modifyState :: (MonadReader AppData m, MonadUnliftIO m) => (AppState -> AppState) -> m ()
 modifyState f = do
   appData <- ask
   modifyMVar_ appData.state \appState -> pure (f appState)

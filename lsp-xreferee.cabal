@@ -172,7 +172,9 @@ test-suite lsp-xreferee-test
   main-is: Spec.hs
   other-modules:
     Paths_lsp_xreferee
+    Xreferee.Lsp.DbSpec
     Xreferee.Lsp.ShouldHandleFileOrDirSpec
+    Xreferee.Lsp.TestPrelude
 
   autogen-modules:
     Paths_lsp_xreferee
@@ -221,8 +223,11 @@ test-suite lsp-xreferee-test
     classy-prelude,
     directory,
     filepath,
+    lsp-types,
     lsp-xreferee,
+    pretty-simple,
     process,
+    sqlite-simple,
     sydtest,
     text,
 

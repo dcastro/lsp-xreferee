@@ -1,6 +1,5 @@
 module Xreferee.Lsp.Symbols where
 
-import Control.Lens hiding (Indexable, Iso)
 import Control.Monad.State (StateT, evalStateT, get, modify)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map qualified as Map

@@ -10,10 +10,12 @@ import Database.SQLite.Simple.QQ (sql)
 import Database.SQLite.Simple.ToField (ToField (..))
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Types qualified as LSP
-import Xreferee.Lsp.AppM (AppM, AppState (..), HasAppEnv (conn), modifyState)
+import Xreferee.Lsp.AppM (AppData, AppState (..), HasAppEnv (conn), modifyState)
 import Xreferee.Lsp.Orphans ()
 import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Util qualified as Util
+
+type MonadDb m = (MonadReader AppData m, MonadUnliftIO m)
 
 -- | A symbol (anchor or reference), built from xreferee's `XReferee.SearchResult`, except:
 --    * We use `file://` URIs with absolute paths instead of relative file paths
@@ -83,7 +85,7 @@ new = liftIO do
 
   pure conn
 
-insertAnchors :: [Symbol] -> AppM ()
+insertAnchors :: (MonadDb m) => [Symbol] -> m ()
 insertAnchors anchors = do
   conn <- view conn
   unless (null anchors) do
@@ -95,7 +97,7 @@ insertAnchors anchors = do
           anchors
     setDirty
 
-insertReferences :: [Symbol] -> AppM ()
+insertReferences :: (MonadDb m) => [Symbol] -> m ()
 insertReferences references = do
   conn <- view conn
   unless (null references) do
@@ -107,7 +109,7 @@ insertReferences references = do
           references
     setDirty
 
-deleteSymbolsExcept :: [LSP.Uri] -> AppM ()
+deleteSymbolsExcept :: (MonadDb m) => [LSP.Uri] -> m ()
 deleteSymbolsExcept uris = do
   conn <- view conn
   let placeholders = T.intercalate "," (replicate (length uris) "?")
@@ -118,7 +120,7 @@ deleteSymbolsExcept uris = do
   liftIO $ execute conn (Query queryRefs) uris
   checkDirty conn
 
-findAnchorsWithName :: Text -> AppM [Symbol]
+findAnchorsWithName :: (MonadDb m) => Text -> m [Symbol]
 findAnchorsWithName name = do
   conn <- view conn
   liftIO do
@@ -131,7 +133,7 @@ findAnchorsWithName name = do
       |]
       (Only name)
 
-findReferencesWithName :: Text -> AppM [Symbol]
+findReferencesWithName :: (MonadDb m) => Text -> m [Symbol]
 findReferencesWithName name = do
   conn <- view conn
   liftIO do
@@ -144,7 +146,7 @@ findReferencesWithName name = do
       |]
       (Only name)
 
-findAnchorAtPosition :: LSP.Uri -> LSP.Position -> AppM (Maybe Symbol)
+findAnchorAtPosition :: (MonadDb m) => LSP.Uri -> LSP.Position -> m (Maybe Symbol)
 findAnchorAtPosition uri lspPos = do
   conn <- view conn
   let reqLine = lspPos ^. LSP.line
@@ -161,7 +163,7 @@ findAnchorAtPosition uri lspPos = do
         |]
         (uri, reqLine, reqColumn, reqColumn)
 
-findReferenceAtPosition :: LSP.Uri -> LSP.Position -> AppM (Maybe Symbol)
+findReferenceAtPosition :: (MonadDb m) => LSP.Uri -> LSP.Position -> m (Maybe Symbol)
 findReferenceAtPosition uri lspPos = do
   conn <- view conn
   let reqLine = lspPos ^. LSP.line
@@ -179,7 +181,7 @@ findReferenceAtPosition uri lspPos = do
         |]
         (uri, reqLine, reqColumn, reqColumn)
 
-deleteSymbolsForFile :: LSP.Uri -> AppM ()
+deleteSymbolsForFile :: (MonadDb m) => LSP.Uri -> m ()
 deleteSymbolsForFile uri = do
   conn <- view conn
   liftIO $ execute conn [sql|DELETE FROM anchors WHERE uri = ?|] (Only uri)
@@ -187,7 +189,7 @@ deleteSymbolsForFile uri = do
   liftIO $ execute conn [sql|DELETE FROM refs WHERE uri = ?|] (Only uri)
   checkDirty conn
 
-deleteSymbolsForFileOrDirectory :: LSP.Uri -> AppM ()
+deleteSymbolsForFileOrDirectory :: (MonadDb m) => LSP.Uri -> m ()
 deleteSymbolsForFileOrDirectory uri = do
   conn <- view conn
 
@@ -208,7 +210,7 @@ deleteSymbolsForFileOrDirectory uri = do
   liftIO $ execute conn [sql|DELETE FROM refs WHERE uri = ? OR instr(uri, ?) = 1|] (uri, dirPrefix)
   checkDirty conn
 
-findUnusedAnchors :: AppM [Symbol]
+findUnusedAnchors :: (MonadDb m) => m [Symbol]
 findUnusedAnchors = do
   conn <- view conn
   liftIO do
@@ -221,7 +223,7 @@ findUnusedAnchors = do
         ORDER BY name
       |]
 
-findBrokenReferences :: AppM [Symbol]
+findBrokenReferences :: (MonadDb m) => m [Symbol]
 findBrokenReferences = do
   conn <- view conn
   liftIO do
@@ -234,7 +236,7 @@ findBrokenReferences = do
         ORDER BY name
       |]
 
-findDuplicateAnchors :: AppM [Symbol]
+findDuplicateAnchors :: (MonadDb m) => m [Symbol]
 findDuplicateAnchors = do
   conn <- view conn
   liftIO do
@@ -248,7 +250,7 @@ findDuplicateAnchors = do
         ORDER BY name
       |]
 
-deleteSymbolsInLineRange :: LSP.Uri -> LineNum -> LineNum -> AppM ()
+deleteSymbolsInLineRange :: (MonadDb m) => LSP.Uri -> LineNum -> LineNum -> m ()
 deleteSymbolsInLineRange uri startLine endLine = do
   conn <- view conn
   liftIO $
@@ -264,7 +266,7 @@ deleteSymbolsInLineRange uri startLine endLine = do
       (uri, startLine, endLine)
   checkDirty conn
 
-shiftSymbolsAfterLine :: LSP.Uri -> LineNum -> Int -> AppM ()
+shiftSymbolsAfterLine :: (MonadDb m) => LSP.Uri -> LineNum -> Int -> m ()
 shiftSymbolsAfterLine uri lineNum delta = do
   conn <- view conn
   when (delta /= 0) do
@@ -285,12 +287,12 @@ shiftSymbolsAfterLine uri lineNum delta = do
 -- Utils
 ----------------------------------------------------------------------------
 
-checkDirty :: Connection -> AppM ()
+checkDirty :: (MonadReader AppData m, MonadUnliftIO m) => Connection -> m ()
 checkDirty conn = do
   affectedRows <- liftIO $ changes conn
   when (affectedRows > 0) do
     setDirty
 
-setDirty :: AppM ()
+setDirty :: (MonadReader AppData m, MonadUnliftIO m) => m ()
 setDirty = do
   modifyState \appState -> appState {isDbDirty = True}

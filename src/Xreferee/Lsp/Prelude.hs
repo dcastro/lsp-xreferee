@@ -62,6 +62,10 @@ import Control.Exception.Safe as M
     throwIO,
     try,
   )
+import Control.Lens as M (view)
+import Data.Function as M
+  ( (&),
+  )
 import ExceptionUtil as M
   ( -- Display exception with `ExceptionContext``
     displayFullException,

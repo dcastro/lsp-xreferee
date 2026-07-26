@@ -12,13 +12,12 @@ import System.Exit (ExitCode (..))
 import System.FilePath qualified as FP
 import System.IO qualified as IO
 import System.Process qualified as Process
-import Test.Syd
-import Xreferee.Lsp.Prelude
+import Xreferee.Lsp.TestPrelude
 import Xreferee.Lsp.Util (ShouldHandle (..), doShouldHandleFileOrDir)
 
 spec :: Spec
-spec = describe "shouldHandleFileOrDir" $ do
-  it "should handle files and directories" $ do
+spec = describe "shouldHandleFileOrDir" do
+  it "should handle files and directories" do
     withGitRepo
       """
       tracked-ignored.md
@@ -100,7 +99,7 @@ spec = describe "shouldHandleFileOrDir" $ do
         check "../non-existent.md" (DontHandle "outside git repo")
         --  is outside the repo root, but is a file tracked by ANOTHER git repo.
         fileFromThisRepo <- Dir.makeAbsolute "tracked.md"
-        withGitRepo "" [] $ do
+        withGitRepo "" [] do
           check fileFromThisRepo (DontHandle "outside git repo")
 
         --  is .git folder
