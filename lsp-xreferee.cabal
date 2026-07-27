@@ -63,6 +63,7 @@ library
     ExceptionUtil
     Xreferee.Lsp
     Xreferee.Lsp.AppM
+    Xreferee.Lsp.Capture
     Xreferee.Lsp.Db
     Xreferee.Lsp.Exception
     Xreferee.Lsp.FileWatchers
@@ -153,6 +154,7 @@ test-suite lsp-xreferee-test
   other-modules:
     Paths_lsp_xreferee
     Xreferee.Lsp.DbSpec
+    Xreferee.Lsp.E2ESpec
     Xreferee.Lsp.ShouldHandleFileOrDirSpec
     Xreferee.Lsp.TestPrelude
 
@@ -166,10 +168,12 @@ test-suite lsp-xreferee-test
     sydtest-discover:sydtest-discover
 
   build-depends:
+    aeson,
     base,
     classy-prelude,
     directory,
     filepath,
+    lsp-test,
     lsp-types,
     lsp-xreferee,
     pretty-simple,
