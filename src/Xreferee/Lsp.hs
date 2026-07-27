@@ -122,7 +122,8 @@ run cliOptions = do
             -- TODO: config section
             onConfigChange = const $ pure (),
             configSection = "lsp-xreferee",
-            doInitialize = \env _initializeMsg -> do
+            doInitialize = \env initializeMsg -> do
+              setWorkspaceDir startupLoggers initializeMsg
               appEnv <- initialize appLoggers startupLoggers env
               t1 <- Time.getPOSIXTime
               let startupTime = t1 - t0
@@ -142,6 +143,53 @@ run cliOptions = do
     stdin
     stdout
     serverDefinition
+
+-- | Change the process's working directory to the workspace directory advertised by the client.
+--
+-- We shell out to `git` in a few places (see "Xreferee.Lsp.Git" and `X.findRefsFromGit`),
+-- and those commands are all resolved relative to the process's working directory.
+-- So, before we touch git at all, we `chdir` into the workspace directory.
+--
+-- Even though vscode spawns the server with the working directory set to the workspace directory,
+-- the LSP spec does not require clients to do this, so we can't rely on it.
+-- `lsp-test`, for example, doesn't.
+-- So we have to do it explicitly ourselves.
+setWorkspaceDir :: LogAction IO (WithSeverity Text) -> LSP.TRequestMessage 'LSP.Method_Initialize -> IO ()
+setWorkspaceDir startupLogger initializeMsg =
+  case getWorkspaceDir initializeMsg of
+    Nothing ->
+      startupLogger
+        <& "The 'initialize' request did not specify a workspace directory, using the current working directory."
+        `WithSeverity` L.Warning
+    Just dir ->
+      Dir.doesDirectoryExist dir >>= \case
+        False ->
+          startupLogger
+            <& ("The workspace directory does not exist: '" <> pack dir <> "', using the current working directory.")
+            `WithSeverity` L.Warning
+        True -> do
+          Dir.setCurrentDirectory dir
+          startupLogger <& ("Working directory set to: '" <> pack dir <> "'") `WithSeverity` L.Debug
+  where
+    -- We prefer the first workspace folder, and fall back to the deprecated
+    -- `rootUri` / `rootPath` fields for clients that don't support workspace folders.
+    getWorkspaceDir :: LSP.TRequestMessage 'LSP.Method_Initialize -> Maybe FilePath
+    getWorkspaceDir msg =
+      fromWorkspaceFolders <|> fromRootUri <|> fromRootPath
+      where
+        params = msg ^. LSP.params
+
+        fromWorkspaceFolders :: Maybe FilePath
+        fromWorkspaceFolders = do
+          params ^? LSP.workspaceFolders . _Just . LSP._L . _head . LSP.uri . to LSP.uriToFilePath . _Just
+
+        fromRootUri :: Maybe FilePath
+        fromRootUri =
+          params ^? LSP.rootUri . LSP._L . to LSP.uriToFilePath . _Just
+
+        fromRootPath :: Maybe FilePath
+        fromRootPath = do
+          params ^? LSP.rootPath . _Just . LSP._L . to unpack
 
 initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> LanguageContextEnv Config -> IO AppData
 initialize appLogger _startupLogger env = do
