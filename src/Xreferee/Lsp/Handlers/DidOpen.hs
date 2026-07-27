@@ -32,7 +32,9 @@ handleDidOpen = \req -> do
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text . to fromStrict . to encodeUtf8
 
   whenJust (LSP.uriToFilePath uri) \path -> do
-    liftIO (checkIfBufferIsDirty path contents) >>= \case
+    isDirty <- liftIO $ checkIfBufferIsDirty path contents
+    Log.debugP "Buffer is dirty" isDirty
+    case isDirty of
       Just False -> pure ()
       -- If the buffer is "dirty", or we failed to check if it's dirty, we reparse the file and update the symbols.
       Just True; Nothing -> Symbols.loadSymbolsForFile uri contents
@@ -47,6 +49,8 @@ handleDidOpen = \req -> do
     -- This reads a chunk at a time, so it's constant space.
     -- And short-circuits when it finds a difference.
     -- The chunk comparison is done with `memcmp`, so it's fast.
+    --
+    -- This takes about 0.2s on a 30 MB file, with a clean buffer (i.e. the file was read to EOF)
     differsFromFile :: FilePath -> LByteString -> IO Bool
     differsFromFile fp contents =
       withBinaryFile fp ReadMode \h -> do

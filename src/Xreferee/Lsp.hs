@@ -254,8 +254,9 @@ handlers =
     [ notificationHandler LSP.SMethod_Initialized \_msg -> do
         FileWatchers.watchRepoFiles,
       notificationHandler LSP.SMethod_TextDocumentDidOpen (filterNot handleDidOpen),
-      notificationHandler LSP.SMethod_TextDocumentDidClose \_req -> do
+      notificationHandler LSP.SMethod_TextDocumentDidClose $ filterNot \_req -> do
         -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
+        -- We use `filterNot` so we can log which file was closed, it may be useful for debugging.
         pure (),
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \_msg -> do
         cfg <- getConfig

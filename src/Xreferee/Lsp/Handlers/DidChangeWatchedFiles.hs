@@ -64,7 +64,10 @@ runHandler fileEvents = do
   forM_ fileEvents \fileEvent -> do
     let uri = fileEvent ^. LSP.uri
     let eventType = fileEvent ^. LSP.type_
-    annotateStackStringIO ("Handling file event: " <> show eventType <> " for " <> T.unpack uri.getUri) do
+    let logMsg = "Handling file event: " <> tshow eventType <> " for " <> uri.getUri
+
+    annotateStackStringIO (unpack logMsg) do
+      Log.debug logMsg
       whenM (Util.shouldHandleFileOrDir uri) do
         case eventType of
           LSP.FileChangeType_Changed -> do
