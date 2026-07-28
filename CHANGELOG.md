@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.3
+
 * Add backtraces to logged exceptions.
 * Dump to a logfile when the server crashes.
 * Display runtime exceptions in the client.

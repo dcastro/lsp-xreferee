@@ -1,6 +1,6 @@
 cabal-version: 2.2
 name: lsp-xreferee
-version: 0.0.1
+version: 0.0.3
 description: Please see the README on GitHub at <https://github.com/githubuser/lsp-xreferee#readme>
 homepage: https://github.com/githubuser/lsp-xreferee#readme
 bug-reports: https://github.com/githubuser/lsp-xreferee/issues
