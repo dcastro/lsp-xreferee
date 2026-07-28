@@ -3,6 +3,10 @@
 
 * When vscode starts, we'll get a `didOpen` event for the tab currently focused AND any other tab with unsaved changes.
 
+* When the user closes a tab with unsaved changes:
+  * we'll get a `didChange` event reverting those changes, such that the buffer state matches what's on disk.
+  * and after that we'll get a `didClose` event.
+
 * We can receive `didOpen` / `didChange` events for files that don't YET exist on disk. E.g.:
   1. The user opens a new tab, makes some changes, and saves the file.
      When the file is saved, we'll get `didOpen -> didChange -> FileChangeType_Created -> FileChangeType_Changed` in quick succession, in that order.
@@ -54,6 +58,7 @@ SO we need to switch to solution 2: if the tab is still open, its symbols must b
       * `to_create.md`: If the file is open, skip the event. Otherwise, parse it
       * `to_replace.md`: If the file is open, skip the event. Otherwise, parse it
 
+#(ref:example1)
 ```sh
 # setup
 ^rm -rf ../test ; mkdir ../test ; touch ../test/to_replace.md ; touch ../test/to_create.md
@@ -63,7 +68,6 @@ SO we need to switch to solution 2: if the tab is still open, its symbols must b
 ^rm -rf ./test ; mv ../test ./test
 ```
 ```hs
-#(ref:example1)
 [ FileEvent
     { _uri = Uri
         { getUri = "file:///home/dc/Dropbox/Projects/xreferee/example-xreferee/test" }
@@ -150,12 +154,15 @@ When a file is renamed via the filesystem, (regardless if it's open), we'll get:
   * See @(ref:didClose-deleted-file)
 
 * All filesystem events, handled by `didChangeWatchedFiles`, **MUST** check if the file is currently open. If it is, skip the event. The editor is the source of truth.
-  * When we receive a filesystem event for a **folder**, we must traverse the folder and then apply this check to each individual file.
+  * When we receive a `FileChangeType_Changed` or `FileChangeType_Created` event for a **folder**, we must traverse the folder and then apply this check to each individual file.
+  * When we receive a `FileChangeType_Deleted` event, we don't know whether that path (e.g. `/path`) was a folder or a file.
+    We must delete all symbols whose URI match that path exactly or have that path as a parent, ONLY if they're not open.
 
+<!-- #(ref:changed-created-equivalency) -->
 * The filesystem events `FileChangeType_Changed` and `FileChangeType_Created` _may_ be treated the same way:
   * For files:
     * it doesn't matter whether it was changed or created, we have to parse it from scratch.
-    * For `FileChangeType_Changed` events, we don't need to delete existing symbols, so we may differentiate between these 2 events as a performance optimization.
+    * For `FileChangeType_Created` events, we don't need to delete existing symbols, so we may differentiate between these 2 events as a performance optimization.
   * For folders:
     * `FileChangeType_Changed` can actually mean that new files were created (see @(ref:example1)), so we **MUST** treat it as `FileChangeType_Created`
 
@@ -164,5 +171,6 @@ When a file is renamed via the filesystem, (regardless if it's open), we'll get:
 
 * The filesystem events `FileChangeType_Changed` and `FileChangeType_Created` _may_ be deduplicated, as a performance optimization:
   * See @(ref:dedupe-example)
-  * If such an event for a folder is followed by a `n` events for files inside that folder, those `n` events may be dropped.
-  * Note there can files/folders can be arbitrarily nested, e.g. we can receive a list of events for `[ ./dir, ./dir/file1.md, ./dir/deep, ./dir/deep/file2.md ]`
+  * If we get a set of events with a `Changed`/`Created` event for a folder and N `Changed`/`Created` events for files inside that folder, those N events may be dropped
+  * NOTE: the equivalency from @(ref:changed-created-equivalency) must be taken into account when performing the deduplication.
+  * NOTE: there can files/folders can be arbitrarily nested, e.g. we can receive a list of events for `[ ./dir, ./dir/file1.md, ./dir/deep, ./dir/deep/file2.md ]`
