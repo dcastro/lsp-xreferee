@@ -162,12 +162,17 @@ When a file is renamed via the filesystem, (regardless if it's open), we'll get:
 * The filesystem events `FileChangeType_Changed` and `FileChangeType_Created` _may_ be treated the same way:
   * For files:
     * it doesn't matter whether it was changed or created, we have to parse it from scratch.
-    * For `FileChangeType_Created` events, we don't need to delete existing symbols, so we may differentiate between these 2 events as a performance optimization.
+    * `Changed` means we have to delete existing symbols from the db.
+      On the other hand, we don't need to delete existing symbols for `Created`, at least in theory.
+      However, it's possible that that the user may run `rm a.md` and `mv b.md a.md` in quick succession, and by the time the server gets to handle both events, `Deleted` will be skipped (because the file exists on disk) and `Created` now needs to delete the old symbols from the deleted file.
+      So as a precaution, let's have both `Changed` and `Created` events delete old symbols.
   * For folders:
     * `FileChangeType_Changed` can actually mean that new files were created (see @(ref:example1)), so we **MUST** treat it as `FileChangeType_Created`
 
-* Filesystem events must be handled in reverse order (right to left)
+* `Deleted` events must be skipped if the file exists on disk.
   * See @(ref:example1): handling those events from left to right would mean we end up deleting `to_replace.md`
+  * Handling them from left to right would prevent this issue, but we can't rely on the events being ordered any given way across all editors and all operating systems.
+  * So the solution to @(ref:example1) is to make event handling idempotent.
 
 * The filesystem events `FileChangeType_Changed` and `FileChangeType_Created` _may_ be deduplicated, as a performance optimization:
   * See @(ref:dedupe-example)
