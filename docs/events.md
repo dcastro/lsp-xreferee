@@ -36,7 +36,7 @@ Initially, our implementation went with solution 1.
 But that's not consistent with a core principle of the LSP server: when the editor buffer and the filesystem diverge, the buffer always wins.
 We should always treat the editor buffer as the source of truth.
 
-SO we need to switch to solution 2: if the tab is still open, its symbols must be preserved.
+So we need to switch to solution 2: if the tab is still open, its symbols must be preserved.
 
 ## Replacing folders
 
@@ -156,7 +156,7 @@ When a file is renamed via the filesystem, (regardless if it's open), we'll get:
 * All filesystem events, handled by `didChangeWatchedFiles`, **MUST** check if the file is currently open. If it is, skip the event. The editor is the source of truth.
   * When we receive a `FileChangeType_Changed` or `FileChangeType_Created` event for a **folder**, we must traverse the folder and then apply this check to each individual file.
   * When we receive a `FileChangeType_Deleted` event, we don't know whether that path (e.g. `/path`) was a folder or a file.
-    We must delete all symbols whose URI match that path exactly or have that path as a parent, ONLY if they're not open.
+    We must delete all symbols whose URI match that path exactly or have that path as a parent, ONLY if they're not open AND the file does indeed not exist on disk (see @(ref:delete-idempotent) for an explanation)
 
 <!-- #(ref:changed-created-equivalency) -->
 * The filesystem events `FileChangeType_Changed` and `FileChangeType_Created` _may_ be treated the same way:
@@ -164,18 +164,19 @@ When a file is renamed via the filesystem, (regardless if it's open), we'll get:
     * it doesn't matter whether it was changed or created, we have to parse it from scratch.
     * `Changed` means we have to delete existing symbols from the db.
       On the other hand, we don't need to delete existing symbols for `Created`, at least in theory.
-      However, it's possible that that the user may run `rm a.md` and `mv b.md a.md` in quick succession, and by the time the server gets to handle both events, `Deleted` will be skipped (because the file exists on disk) and `Created` now needs to delete the old symbols from the deleted file.
+      However, it's possible that the user may run `rm a.md` and `mv b.md a.md` in quick succession, and by the time the server gets to handle both events, `Deleted` will be skipped (because the file exists on disk) and `Created` now needs to delete the old symbols from the deleted file.
       So as a precaution, let's have both `Changed` and `Created` events delete old symbols.
   * For folders:
     * `FileChangeType_Changed` can actually mean that new files were created (see @(ref:example1)), so we **MUST** treat it as `FileChangeType_Created`
 
-* `Deleted` events must be skipped if the file exists on disk.
+<!-- #(ref:delete-idempotent) -->
+* `Deleted` events: if a file exists on disk, don't delete its symbols.
   * See @(ref:example1): handling those events from left to right would mean we end up deleting `to_replace.md`
-  * Handling them from left to right would prevent this issue, but we can't rely on the events being ordered any given way across all editors and all operating systems.
+  * Handling them from right to left would prevent this issue, but we can't rely on the events being ordered any given way across all editors and all operating systems.
   * So the solution to @(ref:example1) is to make event handling idempotent.
 
 * The filesystem events `FileChangeType_Changed` and `FileChangeType_Created` _may_ be deduplicated, as a performance optimization:
   * See @(ref:dedupe-example)
   * If we get a set of events with a `Changed`/`Created` event for a folder and N `Changed`/`Created` events for files inside that folder, those N events may be dropped
   * NOTE: the equivalency from @(ref:changed-created-equivalency) must be taken into account when performing the deduplication.
-  * NOTE: there can files/folders can be arbitrarily nested, e.g. we can receive a list of events for `[ ./dir, ./dir/file1.md, ./dir/deep, ./dir/deep/file2.md ]`
+  * NOTE: files/folders can be arbitrarily nested, e.g. we can receive a list of events for `[ ./dir, ./dir/file1.md, ./dir/deep, ./dir/deep/file2.md ]`
