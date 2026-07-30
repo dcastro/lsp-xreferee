@@ -34,6 +34,7 @@ import Xreferee.Lsp.Git qualified as Git
 import Xreferee.Lsp.Handlers qualified as Handlers
 import Xreferee.Lsp.Handlers.Definition (handleDefinition)
 import Xreferee.Lsp.Handlers.DidChange (handleDidChange)
+import Xreferee.Lsp.Handlers.DidClose (handleDidClose)
 import Xreferee.Lsp.Handlers.DidOpen (handleDidOpen)
 import Xreferee.Lsp.Handlers.PrepareRename (handlePrepareRename)
 import Xreferee.Lsp.Handlers.References (handleReferences)
@@ -253,19 +254,16 @@ handlers =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized \_msg -> do
         FileWatchers.watchRepoFiles,
-      notificationHandler LSP.SMethod_TextDocumentDidOpen (filterNot handleDidOpen),
-      notificationHandler LSP.SMethod_TextDocumentDidClose $ filterNot \_req -> do
-        -- Empty handler so we don't get these warnings in the log: `LSP: no handler for: "textDocument/didClose"`
-        -- We use `filterNot` so we can log which file was closed, it may be useful for debugging.
-        pure (),
+      notificationHandler LSP.SMethod_TextDocumentDidOpen $ filterNot handleDidOpen,
+      notificationHandler LSP.SMethod_TextDocumentDidClose $ filterNot handleDidClose,
       notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \_msg -> do
         cfg <- getConfig
         Log.debugP "Configuration changed" cfg,
-      notificationHandler LSP.SMethod_TextDocumentDidChange (filterNot handleDidChange),
-      requestHandler LSP.SMethod_TextDocumentPrepareRename (filterReq handlePrepareRename),
-      requestHandler LSP.SMethod_TextDocumentRename (filterReq handleRename),
-      requestHandler LSP.SMethod_TextDocumentDefinition (filterReq handleDefinition),
-      requestHandler LSP.SMethod_TextDocumentReferences (filterReq handleReferences)
+      notificationHandler LSP.SMethod_TextDocumentDidChange $ filterNot handleDidChange,
+      requestHandler LSP.SMethod_TextDocumentPrepareRename $ filterReq handlePrepareRename,
+      requestHandler LSP.SMethod_TextDocumentRename $ filterReq handleRename,
+      requestHandler LSP.SMethod_TextDocumentDefinition $ filterReq handleDefinition,
+      requestHandler LSP.SMethod_TextDocumentReferences $ filterReq handleReferences
       -- Workspace events
       -- NOTE: `workspace/didChangeWatchedFiles` must be registered dynamically, see `registerDidChangeWatchedFiles`
     ]

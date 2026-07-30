@@ -72,6 +72,7 @@ library
     Xreferee.Lsp.Handlers.DidChange
     Xreferee.Lsp.Handlers.DidChangeGitIgnore
     Xreferee.Lsp.Handlers.DidChangeWatchedFiles
+    Xreferee.Lsp.Handlers.DidClose
     Xreferee.Lsp.Handlers.DidOpen
     Xreferee.Lsp.Handlers.PrepareRename
     Xreferee.Lsp.Handlers.References
