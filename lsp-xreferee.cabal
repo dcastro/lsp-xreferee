@@ -154,6 +154,7 @@ test-suite lsp-xreferee-test
   other-modules:
     Paths_lsp_xreferee
     Xreferee.Lsp.DbSpec
+    Xreferee.Lsp.Handlers.DidChangeWatchedFilesSpec
     Xreferee.Lsp.ShouldHandleFileOrDirSpec
     Xreferee.Lsp.TestPrelude
 

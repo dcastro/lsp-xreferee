@@ -175,6 +175,7 @@ When a file is renamed via the filesystem, (regardless if it's open), we'll get:
   * Handling them from right to left would prevent this issue, but we can't rely on the events being ordered any given way across all editors and all operating systems.
   * So the solution to @(ref:example1) is to make event handling idempotent.
 
+<!-- #(ref:dedupe-events) -->
 * The filesystem events `FileChangeType_Changed` and `FileChangeType_Created` _may_ be deduplicated, as a performance optimization:
   * See @(ref:dedupe-example)
   * If we get a set of events with a `Changed`/`Created` event for a folder and N `Changed`/`Created` events for files inside that folder, those N events may be dropped

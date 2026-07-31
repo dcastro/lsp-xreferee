@@ -37,6 +37,8 @@ searchOpts =
 -- NOTE: We deliberately don't use `System.FilePath.addTrailingPathSeparator` here,
 -- because it appends the platform's path separator, which is `\` on Windows.
 -- Uris always use `/`, regardless of the platform.
+--
+-- #(ref:uriAddTrailingPathSeparator)
 uriAddTrailingPathSeparator :: Uri -> Text
 uriAddTrailingPathSeparator uri =
   if "/" `T.isSuffixOf` uri.getUri

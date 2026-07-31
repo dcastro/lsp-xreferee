@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiWayIf #-}
+
 module Xreferee.Lsp.Handlers.DidChangeWatchedFiles where
 
 import Control.Lens hiding (Indexable, Iso)
@@ -15,6 +17,20 @@ import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Symbols qualified as Symbols
 import Xreferee.Lsp.Util (ReadFileError (..))
 import Xreferee.Lsp.Util qualified as Util
+
+data FileEvent = FileEvent
+  { uri :: Uri,
+    eventType :: FileChangeType,
+    -- The original event type from the LSP notification. This is used for logging and debugging.
+    originalEventType :: LSP.FileChangeType
+  }
+  deriving stock (Show, Eq)
+
+data FileChangeType
+  = -- | We treat "created" and "changed" events the same way, see @(ref:changed-created-equivalency).
+    CreatedOrChanged
+  | Deleted
+  deriving stock (Show, Eq)
 
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles
 --
@@ -174,3 +190,78 @@ runHandler fileEvents = do
           dirs <- filterM Dir.doesDirectoryExist paths
           nestedFiles <- mapM traverseDir dirs
           pure $ files <> concat nestedFiles
+
+-- | If we get a set of events with a `CreatedOrChanged` events for a folder and N `CreatedOrChanged` events for files inside that folder,
+-- those N events may be dropped.
+--
+-- Returns a tuple of (deduped list, dropped events).
+--
+-- See: @(ref:dedupe-events)
+dedupeEvents :: [FileEvent] -> ([FileEvent], [FileEvent])
+dedupeEvents events =
+  foldr
+    ( \event (events, dropped) ->
+        let (updatedEvents, mbDropped) = addOrReplaceEvent event events
+         in (updatedEvents, maybeToList mbDropped <> dropped)
+    )
+    ([], [])
+    events
+  where
+    -- If this event E1 is a parent directory of some existing event in the list E2, drop E2 and replace it with E1.
+    -- If this event E1 is a child of some existing event in the list E2, drop E1.
+    -- Otherwise, add E1 to the list.
+    --
+    -- Returns the dropped element, if any.
+    addOrReplaceEvent :: FileEvent -> [FileEvent] -> ([FileEvent], Maybe FileEvent)
+    addOrReplaceEvent event events =
+      case event.eventType of
+        Deleted ->
+          -- No deduping needed, just append the event to the accumulator.
+          (event : events, Nothing)
+        CreatedOrChanged ->
+          let (updatedEvents, res) =
+                foldr
+                  ( \seenEvent (acc, res) ->
+                      if
+                        -- If we've already replaced an event in the list, then skip checking all the others events.
+                        | wasDuplicateFound res -> (seenEvent : acc, res)
+                        | seenEvent.eventType /= CreatedOrChanged -> (seenEvent : acc, res)
+                        | event.uri `isParentDirOf` seenEvent.uri -> (acc, IsParentOf seenEvent)
+                        | seenEvent.uri `isParentDirOf` event.uri -> (seenEvent : acc, IsChild)
+                        | otherwise -> (seenEvent : acc, res)
+                  )
+                  ([], NoDuplicates)
+                  events
+           in case res of
+                NoDuplicates -> (event : updatedEvents, Nothing)
+                IsParentOf dropped -> (event : updatedEvents, Just dropped)
+                IsChild -> (updatedEvents, Just event)
+
+-- The result of checking whether a file event E is a duplicate of an existing event in the list.
+data DropResult
+  = -- E is not a duplicate of any existing event in the list.
+    NoDuplicates
+  | -- E's path is a parent directory of an existing event in the list, so the existing event should be dropped.
+    IsParentOf FileEvent
+  | -- E's path is a child directory of an existing event in the list, so E should be dropped.
+    IsChild
+
+wasDuplicateFound :: DropResult -> Bool
+wasDuplicateFound = \case
+  NoDuplicates -> False
+  IsParentOf _ -> True
+  IsChild -> True
+
+-- | Checks if a URI is a parent directory of another URI.
+--
+-- >>>  LSP.filePathToUri "./foo" `isParentDirOf` LSP.filePathToUri "./foo/bar/file.md"
+-- True
+-- >>>  LSP.filePathToUri "./foo" `isParentDirOf` LSP.filePathToUri "./foobar/file.md"
+-- False
+-- >>> LSP.filePathToUri "./foo/bar/file.md" `isParentDirOf` LSP.filePathToUri "./foo"
+-- False
+isParentDirOf :: Uri -> Uri -> Bool
+isParentDirOf parentDir file =
+  -- We MUST add a trailing path separator.
+  -- Otherwise, @./foo `isParentDirOf` ./foobar/file.md@ would incorrectly be @True@.
+  Util.uriAddTrailingPathSeparator parentDir `T.isPrefixOf` Util.uriAddTrailingPathSeparator file
