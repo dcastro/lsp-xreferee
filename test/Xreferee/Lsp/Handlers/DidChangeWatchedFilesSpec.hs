@@ -34,6 +34,10 @@ spec =
       dedupeEvents [mkCreated "a", mkCreated "a/b", mkCreated "a/b/c"] `shouldBe` ([mkCreated "a"], [mkCreated "a/b", mkCreated "a/b/c"])
       dedupeEvents [mkCreated "a/b/c", mkCreated "a/b", mkCreated "a"] `shouldBe` ([mkCreated "a"], [mkCreated "a/b/c", mkCreated "a/b"])
 
+      dedupeEvents [mkCreated "a", mkCreated "a/b", mkCreated "a/c"] `shouldBe` ([mkCreated "a"], [mkCreated "a/b", mkCreated "a/c"])
+      dedupeEvents [mkCreated "a/b", mkCreated "a", mkCreated "a/c"] `shouldBe` ([mkCreated "a"], [mkCreated "a/b", mkCreated "a/c"])
+      dedupeEvents [mkCreated "a/b", mkCreated "a/c", mkCreated "a"] `shouldBe` ([mkCreated "a"], [mkCreated "a/b", mkCreated "a/c"])
+
     it "sibling paths are not dropped" do
       dedupeEvents [mkCreated "a/b", mkCreated "a/c"] `shouldBe` ([mkCreated "a/b", mkCreated "a/c"], [])
 

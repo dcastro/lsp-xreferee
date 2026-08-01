@@ -165,56 +165,54 @@ dedupeEvents :: [FileEvent] -> ([FileEvent], [FileEvent])
 dedupeEvents events =
   foldr
     ( \event (events, dropped) ->
-        let (updatedEvents, mbDropped) = addOrReplaceEvent event events
-         in (updatedEvents, maybeToList mbDropped <> dropped)
+        let (updatedEvents, dropped') = addOrReplaceEvent event events
+         in (updatedEvents, dropped' <> dropped)
     )
     ([], [])
     events
   where
-    -- If this event E1 is a parent directory of some existing event in the list E2, drop E2 and replace it with E1.
+    -- If this event E1 is a parent directory of one or more existing events in the list En, drop En and replace it with E1.
     -- If this event E1 is a child of some existing event in the list E2, drop E1.
     -- Otherwise, add E1 to the list.
     --
-    -- Returns the dropped element, if any.
-    addOrReplaceEvent :: FileEvent -> [FileEvent] -> ([FileEvent], Maybe FileEvent)
+    -- Returns the dropped events, if any.
+    addOrReplaceEvent :: FileEvent -> [FileEvent] -> ([FileEvent], [FileEvent])
     addOrReplaceEvent event events =
       case event.eventType of
         Deleted ->
           -- No deduping needed, just append the event to the accumulator.
-          (event : events, Nothing)
+          (event : events, [])
         CreatedOrChanged ->
           let (updatedEvents, res) =
                 foldr
                   ( \seenEvent (acc, res) ->
                       if
-                        -- If we've already replaced an event in the list, then skip checking all the others events.
-                        | wasDuplicateFound res -> (seenEvent : acc, res)
                         | seenEvent.eventType /= CreatedOrChanged -> (seenEvent : acc, res)
-                        | event.uri `isParentDirOf` seenEvent.uri -> (acc, IsParentOf seenEvent)
+                        | event.uri `isParentDirOf` seenEvent.uri ->
+                            let res' =
+                                  case res of
+                                    NoDuplicates -> IsParentOf [seenEvent]
+                                    IsParentOf xs -> IsParentOf (seenEvent : xs)
+                                    IsChild -> error "impossible: a path cannot be both a parent and a child of another path in a deduplicated list"
+                             in (acc, res')
                         | seenEvent.uri `isParentDirOf` event.uri -> (seenEvent : acc, IsChild)
                         | otherwise -> (seenEvent : acc, res)
                   )
                   ([], NoDuplicates)
                   events
            in case res of
-                NoDuplicates -> (event : updatedEvents, Nothing)
-                IsParentOf dropped -> (event : updatedEvents, Just dropped)
-                IsChild -> (updatedEvents, Just event)
+                NoDuplicates -> (event : updatedEvents, [])
+                IsParentOf dropped -> (event : updatedEvents, dropped)
+                IsChild -> (updatedEvents, [event])
 
 -- The result of checking whether a file event E is a duplicate of an existing event in the list.
 data DropResult
   = -- E is not a duplicate of any existing event in the list.
     NoDuplicates
-  | -- E's path is a parent directory of an existing event in the list, so the existing event should be dropped.
-    IsParentOf FileEvent
+  | -- E's path is a parent directory of one or more existing events in the list, so the existing events should be dropped.
+    IsParentOf [FileEvent]
   | -- E's path is a child directory of an existing event in the list, so E should be dropped.
     IsChild
-
-wasDuplicateFound :: DropResult -> Bool
-wasDuplicateFound = \case
-  NoDuplicates -> False
-  IsParentOf _ -> True
-  IsChild -> True
 
 -- | Checks if a URI is a parent directory of another URI.
 --
