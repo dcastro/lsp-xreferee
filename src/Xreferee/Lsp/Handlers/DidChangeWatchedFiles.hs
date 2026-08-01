@@ -6,11 +6,13 @@ module Xreferee.Lsp.Handlers.DidChangeWatchedFiles
     FileChangeType (..),
     mkFileEvent,
     dedupeEvents,
+    listPaths,
   )
 where
 
 import Control.Lens hiding (Indexable, Iso)
 import Data.Maybe qualified as Maybe
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Language.LSP.Protocol.Lens qualified as LSP
 import Language.LSP.Protocol.Message qualified as LSP
@@ -86,29 +88,27 @@ handleFileEvent :: FileEvent -> AppM ()
 handleFileEvent evt =
   case evt.eventType of
     CreatedOrChanged -> do
-      paths <- listPaths evt.uri
+      paths <- listPaths' evt.uri
       for_ paths \path -> do
         let uri = LSP.filePathToUri path
-        -- Check if we should handle events for this file
-        whenM (Util.shouldHandleFileOrDir uri) do
-          -- Check if this file is open. If it is, we don't handle the event.
-          -- If the filesystem and the editor buffer are out of sync, the editor buffer takes priority, it's the source of truth.
-          -- See @(ref:check-is-open)
-          whenM (not <$> isFileOpen uri) do
-            Util.readFileIfExists path >>= \case
-              Left RFNotExists -> do
-                -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
-                Log.debug $ "[WARN] didChangeWatchedFiles: CreatedOrChanged: file was deleted: " <> tshow path
-                pure ()
-              Left RFIsDirectory -> do
-                -- This should never happen, because we already filtered out directories in `listPaths`.
-                -- But just in case (e.g. the path was quickly changed from a file to a directory),
-                -- we skip it.
-                Log.debug $ "[WARN] didChangeWatchedFiles: CreatedOrChanged: path is a directory: " <> tshow path
-                pure ()
-              Right contents -> do
-                Log.debug $ "didChangeWatchedFiles: CreatedOrChanged: loading file from disk: " <> tshow path
-                Symbols.refreshSymbolsForFile uri contents
+        -- Check if this file is open. If it is, we don't handle the event.
+        -- If the filesystem and the editor buffer are out of sync, the editor buffer takes priority, it's the source of truth.
+        -- See @(ref:check-is-open)
+        whenM (not <$> isFileOpen uri) do
+          Util.readFileIfExists path >>= \case
+            Left RFNotExists -> do
+              -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
+              Log.debug $ "[WARN] didChangeWatchedFiles: CreatedOrChanged: file was deleted: " <> tshow path
+              pure ()
+            Left RFIsDirectory -> do
+              -- This should never happen, because we already filtered out directories in `listPaths`.
+              -- But just in case (e.g. the path was quickly changed from a file to a directory),
+              -- we skip it.
+              Log.debug $ "[WARN] didChangeWatchedFiles: CreatedOrChanged: path is a directory: " <> tshow path
+              pure ()
+            Right contents -> do
+              Log.debug $ "didChangeWatchedFiles: CreatedOrChanged: loading file from disk: " <> tshow path
+              Symbols.refreshSymbolsForFile uri contents
     Deleted -> do
       filesWithSymbols <- Db.findFilesInPathWithSymbols evt.uri
       for_ filesWithSymbols \uri -> do
@@ -130,30 +130,33 @@ handleFileEvent evt =
       vf <- getVirtualFile (LSP.toNormalizedUri uri)
       pure $ Maybe.isJust vf
 
-    -- If this path points to a file, return it.
-    -- If it points to a directory, traverse the directory and return all files within it.
-    listPaths :: (MonadIO m) => Uri -> m [FilePath]
-    listPaths uri =
-      case LSP.uriToFilePath uri of
-        Nothing -> pure []
-        Just fp -> do
-          isFile <- liftIO $ Dir.doesFileExist fp
-          if isFile
-            then pure [fp]
+listPaths' :: Uri -> AppM (Set FilePath)
+listPaths' uri =
+  case LSP.uriToFilePath uri of
+    Nothing -> pure Set.empty
+    Just fp -> listPaths Util.shouldHandleFileOrDir fp
+
+-- If this path points to a file, return it.
+-- If it points to a directory, traverse the directory and return all files within it.
+listPaths :: (MonadIO m) => (Uri -> m Bool) -> FilePath -> m (Set FilePath)
+listPaths shouldHandle path = do
+  -- Short-circuit if we're not meant to handle some directory subtree.
+  -- Using `shouldHandleFileOrDir` has the benefit of avoiding following symlinks, which _could_ lead to an infinite loop.
+  shouldHandle (LSP.filePathToUri path) >>= \case
+    False -> pure Set.empty
+    True -> do
+      isFile <- liftIO $ Dir.doesFileExist path
+      if isFile
+        then pure $ Set.singleton path
+        else do
+          isDir <- liftIO $ Dir.doesDirectoryExist path
+          if isDir
+            then do
+              names <- liftIO $ Dir.listDirectory path
+              let absoluteDirPaths = names <&> \name -> path </> name
+              concat <$> for absoluteDirPaths (listPaths shouldHandle)
             else do
-              isDir <- liftIO $ Dir.doesDirectoryExist fp
-              if isDir
-                then liftIO $ traverseDir fp
-                else pure []
-      where
-        traverseDir :: FilePath -> IO [FilePath]
-        traverseDir dir = do
-          contents <- Dir.listDirectory dir
-          let paths = contents <&> \name -> dir </> name
-          files <- filterM Dir.doesFileExist paths
-          dirs <- filterM Dir.doesDirectoryExist paths
-          nestedFiles <- mapM traverseDir dirs
-          pure $ files <> concat nestedFiles
+              pure Set.empty
 
 -- | If we get a set of events with a `CreatedOrChanged` events for a folder and N `CreatedOrChanged` events for files inside that folder,
 -- those N events may be dropped.

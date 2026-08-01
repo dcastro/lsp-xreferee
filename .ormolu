@@ -1,1 +1,2 @@
 module Xreferee.Lsp.Prelude exports ClassyPrelude
+module Xreferee.Lsp.TestPrelude exports ClassyPrelude
