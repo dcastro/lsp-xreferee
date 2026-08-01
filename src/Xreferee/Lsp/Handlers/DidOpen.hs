@@ -37,7 +37,7 @@ handleDidOpen = \req -> do
     case isDirty of
       Just False -> pure ()
       -- If the buffer is "dirty", or we failed to check if it's dirty, we reparse the file and update the symbols.
-      Just True; Nothing -> Symbols.loadSymbolsForFile uri contents
+      Just True; Nothing -> Symbols.refreshSymbolsForFile uri contents
   where
     -- Check if the buffer is "dirty", i.e. if the editor has unsaved changes.
     checkIfBufferIsDirty :: FilePath -> LByteString -> IO (Maybe Bool)

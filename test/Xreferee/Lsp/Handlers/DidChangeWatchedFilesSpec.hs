@@ -1,7 +1,7 @@
 module Xreferee.Lsp.Handlers.DidChangeWatchedFilesSpec where
 
 import Language.LSP.Protocol.Types qualified as LSP
-import Xreferee.Lsp.Handlers.DidChangeWatchedFiles (FileChangeType (..), FileEvent (..), dedupeEvents)
+import Xreferee.Lsp.Handlers.DidChangeWatchedFiles (FileEvent (..), dedupeEvents, mkFileEvent)
 import Xreferee.Lsp.TestPrelude
 
 spec :: Spec
@@ -61,24 +61,24 @@ spec =
 
 mkCreated :: FilePath -> FileEvent
 mkCreated path =
-  FileEvent
-    { uri = LSP.filePathToUri path,
-      eventType = CreatedOrChanged,
-      originalEventType = LSP.FileChangeType_Created
-    }
+  mkFileEvent
+    $ LSP.FileEvent
+      { _uri = LSP.filePathToUri path,
+        _type_ = LSP.FileChangeType_Created
+      }
 
 mkChanged :: FilePath -> FileEvent
 mkChanged path =
-  FileEvent
-    { uri = LSP.filePathToUri path,
-      eventType = CreatedOrChanged,
-      originalEventType = LSP.FileChangeType_Changed
-    }
+  mkFileEvent
+    $ LSP.FileEvent
+      { _uri = LSP.filePathToUri path,
+        _type_ = LSP.FileChangeType_Changed
+      }
 
 mkDeleted :: FilePath -> FileEvent
 mkDeleted path =
-  FileEvent
-    { uri = LSP.filePathToUri path,
-      eventType = Deleted,
-      originalEventType = LSP.FileChangeType_Deleted
-    }
+  mkFileEvent
+    $ LSP.FileEvent
+      { _uri = LSP.filePathToUri path,
+        _type_ = LSP.FileChangeType_Deleted
+      }

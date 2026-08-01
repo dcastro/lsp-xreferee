@@ -1,6 +1,13 @@
 {-# LANGUAGE MultiWayIf #-}
 
-module Xreferee.Lsp.Handlers.DidChangeWatchedFiles where
+module Xreferee.Lsp.Handlers.DidChangeWatchedFiles
+  ( handleDidChangeWatchedFiles,
+    FileEvent (..),
+    FileChangeType (..),
+    mkFileEvent,
+    dedupeEvents,
+  )
+where
 
 import Control.Lens hiding (Indexable, Iso)
 import Data.Maybe qualified as Maybe
@@ -32,6 +39,18 @@ data FileChangeType
   | Deleted
   deriving stock (Show, Eq)
 
+mkFileEvent :: LSP.FileEvent -> FileEvent
+mkFileEvent event =
+  FileEvent
+    { uri = event ^. LSP.uri,
+      eventType =
+        case event ^. LSP.type_ of
+          LSP.FileChangeType_Deleted -> Deleted
+          LSP.FileChangeType_Created -> CreatedOrChanged
+          LSP.FileChangeType_Changed -> CreatedOrChanged,
+      originalEventType = event ^. LSP.type_
+    }
+
 -- | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didChangeWatchedFiles
 --
 -- Watches for file changes in the git repo that happen outside the editor
@@ -40,126 +59,71 @@ handleDidChangeWatchedFiles :: Handler AppM 'LSP.Method_WorkspaceDidChangeWatche
 handleDidChangeWatchedFiles = \req -> do
   annotateStackStringIO "handleDidChangeWatchedFiles" do
     Log.logNot req
-    let fileEvents = dedupFileCreatedEvents $ req ^. LSP.params . LSP.changes
-    runHandler fileEvents
-  where
-    -- When creating a folder, sometimes we might get a "created" event for the folder,
-    -- and sometimes we might get "created" events for the folder AND every file within the folder.
-    --
-    -- To avoid reparsing files unnecessarily, we normalize the events by deduping "created" events.
-    -- If we find "created" events for a folder and a file within that folder, we ignore the "created" event for the file.
-    dedupFileCreatedEvents :: [LSP.FileEvent] -> [LSP.FileEvent]
-    dedupFileCreatedEvents events =
-      foldl'
-        ( \acc event ->
-            if event ^. LSP.type_ == LSP.FileChangeType_Created
-              then
-                -- If we already have a "created" event for a parent directory, we can ignore this "created" event for the child file.
-                if any (\seenEvent -> seenEvent ^. LSP.type_ == LSP.FileChangeType_Created && ((event ^. LSP.uri) `isWithinDir` (seenEvent ^. LSP.uri))) acc
-                  then acc
-                  else event : acc
-              else event : acc
-        )
-        []
-        events
-        & reverse
 
-    -- Checks if a URI points to a file within a given directory.
-    isWithinDir :: Uri -> Uri -> Bool
-    isWithinDir file dir =
-      -- We MUST add a trailing path separator.
-      -- Otherwise, `isWithinDir ./foobar/file.md ./foo` would incorrectly be `True`.
-      Util.uriAddTrailingPathSeparator dir `T.isPrefixOf` file.getUri
+    let fileEvents =
+          req
+            ^.. LSP.params
+              . LSP.changes
+              . each
+              . to mkFileEvent
+    let (dedupedFileEvents, droppedEvents) = dedupeEvents fileEvents
 
--- | Proccess a list of file events.
+    for_ droppedEvents \droppedEvent -> do
+      Log.debug $ "Dropped file event: " <> tshow droppedEvent.originalEventType <> " for " <> droppedEvent.uri.getUri
+
+    for_ dedupedFileEvents \event -> do
+      let logMsg = "Handling file event: " <> tshow event.originalEventType <> " for " <> event.uri.getUri
+      annotateStackStringIO (unpack logMsg) do
+        Log.debug logMsg
+        whenM (Util.shouldHandleFileOrDir event.uri) do
+          handleFileEvent event
+
+-- | Proccess a filesystem event.
 --
 -- This function continously updates the app state, without pushing diagnostics to the client.
 -- We only push diagnostics to the client after we've processed all file events.
-runHandler :: [LSP.FileEvent] -> AppM ()
-runHandler fileEvents = do
-  forM_ fileEvents \fileEvent -> do
-    let uri = fileEvent ^. LSP.uri
-    let eventType = fileEvent ^. LSP.type_
-    let logMsg = "Handling file event: " <> tshow eventType <> " for " <> uri.getUri
-
-    annotateStackStringIO (unpack logMsg) do
-      Log.debug logMsg
-      whenM (Util.shouldHandleFileOrDir uri) do
-        case eventType of
-          LSP.FileChangeType_Changed -> do
-            -- NOTE: when a file is changed on disk AND is open in the editor, either:
-            --  * The user edited the file and saved the changes
-            --      * in which case we don't need to handle it here
-            --  * The file was changed on disk, and the editor buffer was updated as a result
-            --      * e.g. the user switched git branches
-            --      * in which case we also don't need to handle it here, because we'll receive a `didChange` notification with the new contents of the file.
-            --  * The file was changed on disk, but the editor buffer was not updated
-            --      * e.g. the user has unsaved changes in the editor and then switches branches
-            --      * The file on disk and the editor buffer are now out of sync. We prioritize the buffer, so we don't need to handle this event.
-            --
-            -- In other words: in all situations where the file changes AND is open in the editor, we do NOT need to handle this event.
-            --  I.e., we only care about this event if the file is NOT open in the editor.
-            whenM (not <$> lift (isFileOpen uri)) do
-              Util.readFileIfExists (LSP.uriToFilePath uri & Maybe.fromJust) >>= \case
-                Left RFNotExists -> do
-                  -- NOTE: the file may have been deleted between the event being triggered and reaching here, so we skip it if it's gone.
-                  Log.debug $ "[WARN] didChangeWatchedFiles: Changed: file was deleted: " <> uri.getUri
-                  pure ()
-                Left RFIsDirectory -> do
-                  -- We'll get "changed" events for directories if e.g. the user sets attributes or changes permissions on the directory.
-                  -- We should ignore those events.
-                  Log.debug $ "didChangeWatchedFiles: Changed: path is a directory: " <> uri.getUri
-                  pure ()
-                Right contents -> do
-                  Log.debug $ "didChangeWatchedFiles: Changed: reloading file from disk: " <> uri.getUri
-                  Symbols.loadSymbolsForFile uri contents
-          LSP.FileChangeType_Created -> do
-            -- NOTE: this is triggered when:
-            --  * a file is created via the editor (we receive a `didOpen` notification followed by a `didChangeWatchedFiles`).
-            --  * a file is created outside the editor (we ONLY receive `didChangeWatchedFiles` notifications)
-            --  * a file is renamed via the editor / outside the editor (we ONLY receive `didChangeWatchedFiles` notifications).
-            --
-            -- When a file is renamed and it's open in the editor, we'll only receive 2x `didChangeWatchedFiles` (deleted & created),
-            -- We won't receive any other notifications.
-            -- For this reason, we always have to handle this event here, without checking `isFileOpen`.
-            --
-            -- The downside is that when a file is created via the editor, we'll parse it twice
-            -- (when handling `didOpen` and again here when handling `didChangeWatchedFiles`),
-            -- but that's not a big deal because the file is likely empty anyway.
-            --
-            -- NOTE ON DIRECTORIES and `Created` events:
-            --  * when a folder is created with Ctrl+V
-            --     -> we'll get a "created" event for the folder AND for every file within it.
-            --  * when a folder is deleted and then re-created with Ctrl+Z
-            --     -> we'll get a "created" event for the folder only.
-            --  * when a folder is renamed
-            --     -> we'll get a "created" event for the folder only.
-            -- Because we don't know whether we're going to receive events for the individual files,
-            -- we have to assume the worst (we won't). So we traverse the directory and load all files.
-            paths <- listPaths uri
-            forM_ paths \path -> do
-              let uri = LSP.filePathToUri path
-              whenM (Util.shouldHandleFileOrDir uri) do
-                Util.readFileIfExists path >>= \case
-                  Left RFNotExists -> do
-                    -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
-                    Log.debug $ "[WARN] didChangeWatchedFiles: Created: file was deleted: " <> tshow path
-                    pure ()
-                  Left RFIsDirectory -> do
-                    -- This should never happen, because we already filtered out directories in `listPaths`.
-                    -- But just in case (e.g. the path was quickly changed from a file to a directory),
-                    -- we skip it.
-                    Log.debug $ "[WARN] didChangeWatchedFiles: Created: path is a directory: " <> tshow path
-                    pure ()
-                  Right contents -> do
-                    Log.debug $ "didChangeWatchedFiles: Created: loading file from disk: " <> tshow path
-                    Symbols.loadSymbolsForFile uri contents
-          LSP.FileChangeType_Deleted -> do
-            -- NOTE: We don't know whether this was a file or a directory.
-            -- So we have to delete the symbols for this uri, and also delete the symbols for all files with
-            -- this uri as a prefix (in case this was a directory).
-            Log.debug $ "didChangeWatchedFiles: Deleted: Deleting symbols for file/directory: " <> uri.getUri
-            Db.deleteSymbolsForFileOrDirectory uri
+handleFileEvent :: FileEvent -> AppM ()
+handleFileEvent evt =
+  case evt.eventType of
+    CreatedOrChanged -> do
+      paths <- listPaths evt.uri
+      for_ paths \path -> do
+        let uri = LSP.filePathToUri path
+        -- Check if we should handle events for this file
+        whenM (Util.shouldHandleFileOrDir uri) do
+          -- Check if this file is open. If it is, we don't handle the event.
+          -- If the filesystem and the editor buffer are out of sync, the editor buffer takes priority, it's the source of truth.
+          -- See @(ref:check-is-open)
+          whenM (not <$> isFileOpen uri) do
+            Util.readFileIfExists path >>= \case
+              Left RFNotExists -> do
+                -- NOTE: the file may have been deleted since we listed it, so we skip it if it's gone.
+                Log.debug $ "[WARN] didChangeWatchedFiles: CreatedOrChanged: file was deleted: " <> tshow path
+                pure ()
+              Left RFIsDirectory -> do
+                -- This should never happen, because we already filtered out directories in `listPaths`.
+                -- But just in case (e.g. the path was quickly changed from a file to a directory),
+                -- we skip it.
+                Log.debug $ "[WARN] didChangeWatchedFiles: CreatedOrChanged: path is a directory: " <> tshow path
+                pure ()
+              Right contents -> do
+                Log.debug $ "didChangeWatchedFiles: CreatedOrChanged: loading file from disk: " <> tshow path
+                Symbols.refreshSymbolsForFile uri contents
+    Deleted -> do
+      filesWithSymbols <- Db.findFilesWithSymbols evt.uri
+      for_ filesWithSymbols \uri -> do
+        -- Check if we should handle events for this file
+        whenM (Util.shouldHandleFileOrDir uri) do
+          -- Check if this file is open. If it is, we don't handle the event.
+          -- If the filesystem and the editor buffer are out of sync, the editor buffer takes priority, it's the source of truth.
+          -- See @(ref:check-is-open)
+          whenM (not <$> isFileOpen uri) do
+            -- If the file exists on disk, skip this.
+            -- See @(ref:delete-commutative)
+            let path = LSP.uriToFilePath uri & fromMaybe (error $ "Invalid URI stored in the database: " <> unpack uri.getUri)
+            whenM (not <$> liftIO (Dir.doesFileExist path)) do
+              Log.debug $ "didChangeWatchedFiles: Deleted: Deleting symbols for file/directory: " <> uri.getUri
+              Db.deleteSymbolsForFile uri
   where
     isFileOpen :: (MonadLsp Config m) => Uri -> m Bool
     isFileOpen uri = do

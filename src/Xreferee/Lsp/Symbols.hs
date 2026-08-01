@@ -52,8 +52,8 @@ insertSearchResult repoRootDir excludedFiles searchResult = do
           pure uri
 
 -- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
-loadSymbolsForFile :: Uri -> LByteString -> AppM ()
-loadSymbolsForFile uri contents = do
+refreshSymbolsForFile :: Uri -> LByteString -> AppM ()
+refreshSymbolsForFile uri contents = do
   -- Delete the old symbols for this file.
   Db.deleteSymbolsForFile uri
 

@@ -153,6 +153,7 @@ When a file is renamed via the filesystem, (regardless if it's open), we'll get:
   * Check if the file still exists on disk. If it doesn't, delete all its symbols from the db.
   * See @(ref:didClose-deleted-file)
 
+<!-- #(ref:check-is-open) -->
 * All filesystem events, handled by `didChangeWatchedFiles`, **MUST** check if the file is currently open. If it is, skip the event. The editor is the source of truth.
   * When we receive a `FileChangeType_Changed` or `FileChangeType_Created` event for a **folder**, we must traverse the folder and then apply this check to each individual file.
   * When we receive a `FileChangeType_Deleted` event, we don't know whether that path (e.g. `/path`) was a folder or a file.

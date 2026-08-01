@@ -253,6 +253,8 @@ handlers :: Handlers AppM
 handlers =
   mconcat
     [ notificationHandler LSP.SMethod_Initialized \_msg -> do
+        repoRootDir <- view repoRootDir
+        Log.info $ "Repo root directory: " <> pack repoRootDir
         FileWatchers.watchRepoFiles,
       notificationHandler LSP.SMethod_TextDocumentDidOpen $ filterNot handleDidOpen,
       notificationHandler LSP.SMethod_TextDocumentDidClose $ filterNot handleDidClose,

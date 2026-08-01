@@ -3,6 +3,8 @@
 module Xreferee.Lsp.Db where
 
 import Control.Lens
+import Data.Coerce (coerce)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Database.SQLite.Simple
 import Database.SQLite.Simple.FromField (FromField (..))
@@ -209,6 +211,29 @@ deleteSymbolsForFileOrDirectory uri = do
   checkDirty conn
   liftIO $ execute conn [sql|DELETE FROM refs WHERE uri = ? OR instr(uri, ?) = 1|] (uri, dirPrefix)
   checkDirty conn
+
+-- | Given a path `p`, find all files that have symbols in the database that are either:
+-- * The file `p` itself, or
+-- * A file within the directory `p` (if `p` is a directory).
+findFilesWithSymbols :: (MonadDb m) => Uri -> m (Set Uri)
+findFilesWithSymbols uri = do
+  conn <- view conn
+
+  -- We MUST add a trailing path separator to a uri like `./foo`,
+  -- otherwise, `./foobar/file.md` would incorrectly be considered to be within `./foo`.
+  let dirPrefix = Util.uriAddTrailingPathSeparator uri
+
+  -- We can't check whether this uri points to a file or a directory, because
+  -- by the time we get here the path has already been deleted from disk.
+  -- So we handle both cases:
+  --  * `uri = ?` queries the symbols for the uri itself (if it was a file),
+  --  * `instr(uri, ?) = 1` (i.e. "uri starts with ?") queries the symbols for everything underneath it (if it was a directory).
+  --
+  -- NOTE: we use `instr` rather than `uri LIKE ? || '%'`, because `LIKE` would treat
+  -- `%` and `_` in the URI as wildcards.
+  filesWithAnchors <- liftIO $ coerce $ query @_ @(Only Uri) conn [sql|SELECT distinct uri FROM anchors WHERE uri = ? OR instr(uri, ?) = 1|] (uri, dirPrefix)
+  filesWithRefs <- liftIO $ coerce $ query @_ @(Only Uri) conn [sql|SELECT distinct uri FROM refs WHERE uri = ? OR instr(uri, ?) = 1|] (uri, dirPrefix)
+  pure $ Set.fromList (filesWithAnchors <> filesWithRefs)
 
 findUnusedAnchors :: (MonadDb m) => m [Symbol]
 findUnusedAnchors = do
