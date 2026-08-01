@@ -123,8 +123,8 @@ run cliOptions = do
             -- TODO: config section
             onConfigChange = const $ pure (),
             configSection = "lsp-xreferee",
-            doInitialize = \env initializeMsg -> do
-              setWorkspaceDir startupLoggers initializeMsg
+            doInitialize = \env _initializeMsg -> do
+              runLspT env $ setWorkspaceDir appLoggers
               appEnv <- initialize appLoggers startupLoggers env
               t1 <- Time.getPOSIXTime
               let startupTime = t1 - t0
@@ -155,42 +155,34 @@ run cliOptions = do
 -- the LSP spec does not require clients to do this, so we can't rely on it.
 -- `lsp-test`, for example, doesn't.
 -- So we have to do it explicitly ourselves.
-setWorkspaceDir :: LogAction IO (WithSeverity Text) -> LSP.TRequestMessage 'LSP.Method_Initialize -> IO ()
-setWorkspaceDir startupLogger initializeMsg =
-  case getWorkspaceDir initializeMsg of
+setWorkspaceDir :: AppLogger -> LspT Config IO ()
+setWorkspaceDir appLogger =
+  getWorkspaceDir >>= \case
     Nothing ->
-      startupLogger
+      appLogger
         <& "The 'initialize' request did not specify a workspace directory, using the current working directory."
         `WithSeverity` L.Warning
     Just dir ->
-      Dir.doesDirectoryExist dir >>= \case
+      liftIO (Dir.doesDirectoryExist dir) >>= \case
         False ->
-          startupLogger
+          appLogger
             <& ("The workspace directory does not exist: '" <> pack dir <> "', using the current working directory.")
             `WithSeverity` L.Warning
         True -> do
-          Dir.setCurrentDirectory dir
-          startupLogger <& ("Working directory set to: '" <> pack dir <> "'") `WithSeverity` L.Debug
+          liftIO $ Dir.setCurrentDirectory dir
+          appLogger <& ("Working directory set to: '" <> pack dir <> "'") `WithSeverity` L.Debug
   where
     -- We prefer the first workspace folder, and fall back to the deprecated
     -- `rootUri` / `rootPath` fields for clients that don't support workspace folders.
-    getWorkspaceDir :: LSP.TRequestMessage 'LSP.Method_Initialize -> Maybe FilePath
-    getWorkspaceDir msg =
-      fromWorkspaceFolders <|> fromRootUri <|> fromRootPath
-      where
-        params = msg ^. LSP.params
+    getWorkspaceDir :: LspT Config IO (Maybe FilePath)
+    getWorkspaceDir = do
+      workspaceFolders <- LSP.getWorkspaceFolders
+      let fromWorkspaceFolders =
+            workspaceFolders ^? _Just . _head . LSP.uri . to LSP.uriToFilePath . _Just
 
-        fromWorkspaceFolders :: Maybe FilePath
-        fromWorkspaceFolders = do
-          params ^? LSP.workspaceFolders . _Just . LSP._L . _head . LSP.uri . to LSP.uriToFilePath . _Just
-
-        fromRootUri :: Maybe FilePath
-        fromRootUri =
-          params ^? LSP.rootUri . LSP._L . to LSP.uriToFilePath . _Just
-
-        fromRootPath :: Maybe FilePath
-        fromRootPath = do
-          params ^? LSP.rootPath . _Just . LSP._L . to unpack
+      -- Note: `LSP.getRootPath` reads the `rootUri` field and then the `rootPath`.
+      rootPath <- LSP.getRootPath
+      pure $ fromWorkspaceFolders <|> rootPath
 
 initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> LanguageContextEnv Config -> IO AppData
 initialize appLogger _startupLogger env = do
