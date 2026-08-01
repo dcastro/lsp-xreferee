@@ -156,7 +156,7 @@ When a file is renamed via the filesystem, (regardless if it's open), we'll get:
 * All filesystem events, handled by `didChangeWatchedFiles`, **MUST** check if the file is currently open. If it is, skip the event. The editor is the source of truth.
   * When we receive a `FileChangeType_Changed` or `FileChangeType_Created` event for a **folder**, we must traverse the folder and then apply this check to each individual file.
   * When we receive a `FileChangeType_Deleted` event, we don't know whether that path (e.g. `/path`) was a folder or a file.
-    We must delete all symbols whose URI match that path exactly or have that path as a parent, ONLY if they're not open AND the file does indeed not exist on disk (see @(ref:delete-idempotent) for an explanation)
+    We must delete all symbols whose URI match that path exactly or have that path as a parent, ONLY if they're not open AND the file does indeed not exist on disk (see @(ref:delete-commutative) for an explanation)
 
 <!-- #(ref:changed-created-equivalency) -->
 * The filesystem events `FileChangeType_Changed` and `FileChangeType_Created` _may_ be treated the same way:
@@ -169,11 +169,13 @@ When a file is renamed via the filesystem, (regardless if it's open), we'll get:
   * For folders:
     * `FileChangeType_Changed` can actually mean that new files were created (see @(ref:example1)), so we **MUST** treat it as `FileChangeType_Created`
 
-<!-- #(ref:delete-idempotent) -->
+<!-- #(ref:delete-commutative) -->
 * `Deleted` events: if a file exists on disk, don't delete its symbols.
   * See @(ref:example1): handling those events from left to right would mean we end up deleting `to_replace.md`
   * Handling them from right to left would prevent this issue, but we can't rely on the events being ordered any given way across all editors and all operating systems.
-  * So the solution to @(ref:example1) is to make event handling idempotent.
+  * So the solution to @(ref:example1) is to make event handling order-independent (i.e. commutative).
+    * `[Changed, Deleted]`: The `Changed` event will cause us to delete+load the symbols for the file. The `Deleted` event will **observe the file exists on disk**, and do nothing.
+    * `[Deleted, Changed]`: The `Deleted` event will delete the symbols for that file. The `Changed` event will delete nothing, and load the symbols for the file.
 
 <!-- #(ref:dedupe-events) -->
 * The filesystem events `FileChangeType_Changed` and `FileChangeType_Created` _may_ be deduplicated, as a performance optimization:
