@@ -110,7 +110,7 @@ handleFileEvent evt =
                 Log.debug $ "didChangeWatchedFiles: CreatedOrChanged: loading file from disk: " <> tshow path
                 Symbols.refreshSymbolsForFile uri contents
     Deleted -> do
-      filesWithSymbols <- Db.findFilesWithSymbols evt.uri
+      filesWithSymbols <- Db.findFilesInPathWithSymbols evt.uri
       for_ filesWithSymbols \uri -> do
         -- Check if we should handle events for this file
         whenM (Util.shouldHandleFileOrDir uri) do

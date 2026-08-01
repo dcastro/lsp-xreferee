@@ -191,32 +191,11 @@ deleteSymbolsForFile uri = do
   liftIO $ execute conn [sql|DELETE FROM refs WHERE uri = ?|] (Only uri)
   checkDirty conn
 
-deleteSymbolsForFileOrDirectory :: (MonadDb m) => LSP.Uri -> m ()
-deleteSymbolsForFileOrDirectory uri = do
-  conn <- view conn
-
-  -- We MUST add a trailing path separator to a uri like `./foo`,
-  -- otherwise, `./foobar/file.md` would incorrectly be considered to be within `./foo`.
-  let dirPrefix = Util.uriAddTrailingPathSeparator uri
-
-  -- We can't check whether this uri points to a file or a directory, because
-  -- by the time we get here the path has already been deleted from disk.
-  -- So we handle both cases:
-  --  * `uri = ?` deletes the symbols for the uri itself (if it was a file),
-  --  * `instr(uri, ?) = 1` (i.e. "uri starts with ?") deletes the symbols for everything underneath it (if it was a directory).
-  --
-  -- NOTE: we use `instr` rather than `uri LIKE ? || '%'`, because `LIKE` would treat
-  -- `%` and `_` in the URI as wildcards.
-  liftIO $ execute conn [sql|DELETE FROM anchors WHERE uri = ? OR instr(uri, ?) = 1|] (uri, dirPrefix)
-  checkDirty conn
-  liftIO $ execute conn [sql|DELETE FROM refs WHERE uri = ? OR instr(uri, ?) = 1|] (uri, dirPrefix)
-  checkDirty conn
-
--- | Given a path `p`, find all files that have symbols in the database that are either:
--- * The file `p` itself, or
--- * A file within the directory `p` (if `p` is a directory).
-findFilesWithSymbols :: (MonadDb m) => Uri -> m (Set Uri)
-findFilesWithSymbols uri = do
+-- | Given a path `uri`, find all files that have symbols in the database that are either:
+-- * The file `uri` itself, or
+-- * A file within the directory `uri` (if `uri` is a directory).
+findFilesInPathWithSymbols :: (MonadDb m) => Uri -> m (Set Uri)
+findFilesInPathWithSymbols uri = do
   conn <- view conn
 
   -- We MUST add a trailing path separator to a uri like `./foo`,

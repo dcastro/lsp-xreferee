@@ -170,6 +170,7 @@ test-suite lsp-xreferee-test
   build-depends:
     base,
     classy-prelude,
+    containers,
     directory,
     filepath,
     lsp-types,
