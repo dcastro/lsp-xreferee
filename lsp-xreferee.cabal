@@ -72,6 +72,7 @@ library
     Xreferee.Lsp.Handlers.DidChange
     Xreferee.Lsp.Handlers.DidChangeGitIgnore
     Xreferee.Lsp.Handlers.DidChangeWatchedFiles
+    Xreferee.Lsp.Handlers.DidClose
     Xreferee.Lsp.Handlers.DidOpen
     Xreferee.Lsp.Handlers.PrepareRename
     Xreferee.Lsp.Handlers.References
@@ -153,6 +154,7 @@ test-suite lsp-xreferee-test
   other-modules:
     Paths_lsp_xreferee
     Xreferee.Lsp.DbSpec
+    Xreferee.Lsp.Handlers.DidChangeWatchedFilesSpec
     Xreferee.Lsp.ShouldHandleFileOrDirSpec
     Xreferee.Lsp.TestPrelude
 
@@ -168,6 +170,7 @@ test-suite lsp-xreferee-test
   build-depends:
     base,
     classy-prelude,
+    containers,
     directory,
     filepath,
     lsp-types,

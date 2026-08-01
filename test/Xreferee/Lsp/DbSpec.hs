@@ -1,8 +1,8 @@
 module Xreferee.Lsp.DbSpec where
 
-import Database.SQLite.Simple qualified as SQL
+import Data.Set qualified as Set
 import Language.LSP.Protocol.Types qualified as LSP
-import Xreferee.Lsp.AppM (AppData (..), AppEnv (..), AppState (..), HasAppEnv (conn))
+import Xreferee.Lsp.AppM (AppData (..), AppEnv (..), AppState (..))
 import Xreferee.Lsp.Db (Symbol (..))
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.TestPrelude
@@ -10,27 +10,15 @@ import Xreferee.Lsp.TestPrelude
 spec :: Spec
 spec =
   describe "database" do
-    it "deleteSymbolsForFileOrDirectory" do
+    it "findFilesInPathWithSymbols" do
       runDb do
         Db.insertAnchors
           [ mkSymbol "foo" "file1",
             mkSymbol "foo" "file12",
             mkSymbol "foo" "file1/file"
           ]
-        Db.deleteSymbolsForFileOrDirectory (LSP.filePathToUri "file1")
-        findAllAnchors `shouldReturn` [mkSymbol "foo" "file12"]
-
-findAllReferences :: (Db.MonadDb m) => m [Symbol]
-findAllReferences = do
-  conn <- view conn
-  rows <- liftIO $ SQL.query_ conn "SELECT name, uri, line, column_start, column_end FROM refs"
-  pure rows
-
-findAllAnchors :: (Db.MonadDb m) => m [Symbol]
-findAllAnchors = do
-  conn <- view conn
-  rows <- liftIO $ SQL.query_ conn "SELECT name, uri, line, column_start, column_end FROM anchors"
-  pure rows
+        Db.findFilesInPathWithSymbols (LSP.filePathToUri "file1")
+          `shouldReturn` Set.fromList [LSP.filePathToUri "file1", LSP.filePathToUri "file1/file"]
 
 mkSymbol :: Text -> Text -> Symbol
 mkSymbol name path =

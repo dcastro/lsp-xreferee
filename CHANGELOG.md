@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+* If a file is open in the editor and then deleted from disk, symbols will now not be immediately deleted.
+  They're only deleted when the editor tab is closed.
+* Bug fixes:
+  * Fixed many issues related to the editor buffer and the filesystem being out of sync.
+
 ## 0.0.3
 
 * Add backtraces to logged exceptions.

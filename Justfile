@@ -26,4 +26,4 @@ checks:
     xreferee
     just test
     just format
-    cabal build all --enable-tests --enable-benchmarks --ghc-options "-Werror"
+    cabal clean && cabal build all --enable-tests --enable-benchmarks --ghc-options "-Werror"
