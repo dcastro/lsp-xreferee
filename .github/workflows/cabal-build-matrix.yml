@@ -74,6 +74,7 @@ jobs:
 
   build:
     name: ${{ matrix.os }}-${{ matrix.arch }}
+    needs: checks
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
