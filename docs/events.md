@@ -4,8 +4,8 @@
 * When vscode starts, we'll get a `didOpen` event for the tab currently focused AND any other tab with unsaved changes.
 
 * When the user closes a tab with unsaved changes:
-  * we'll get a `didChange` event reverting those changes, such that the buffer state matches what's on disk.
-  * and after that we'll get a `didClose` event.
+  * We'll get a `didChange` event reverting those changes, such that the buffer state matches what's on disk.
+  * And after that we'll get a `didClose` event.
 
 * We can receive `didOpen` / `didChange` events for files that don't YET exist on disk. E.g.:
   1. The user opens a new tab, makes some changes, and saves the file.
@@ -135,22 +135,22 @@ This means:
 ## Renaming files
 
 When a file is renamed via the editor, AND it's open, we'll get:
-  * didClose -> didOpen -> FileChangeType_Created + FileChangeType_Deleted
+  * `didClose` -> `didOpen` -> `FileChangeType_Created` + `FileChangeType_Deleted`
 
 When a file is renamed via the editor, AND it's not open, we'll get:
-  * FileChangeType_Created + FileChangeType_Deleted
+  * `FileChangeType_Created` + `FileChangeType_Deleted`
 
 When a file is renamed via the filesystem, (regardless if it's open), we'll get:
-  * FileChangeType_Created + FileChangeType_Deleted
+  * `FileChangeType_Created` + `FileChangeType_Deleted`
 
 # Implementation
 
-* didOpen
+* `didOpen`
   * consider that the file may not exist on disk
-* didChange
+* `didChange`
   * consider that the file may not exist on disk
-* didClose
-  * check if the file still exists on disk. if it doesn't, delete all its symbols from the db.
+* `didClose`
+  * Check if the file still exists on disk. If it doesn't, delete all its symbols from the db.
   * See @(ref:didClose-deleted-file)
 
 * All filesystem events, handled by `didChangeWatchedFiles`, **MUST** check if the file is currently open. If it is, skip the event. The editor is the source of truth.
