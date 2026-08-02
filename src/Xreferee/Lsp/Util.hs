@@ -88,7 +88,8 @@ shouldHandleFileOrDir uri = do
     * Symlinks
 
   NOTE: Paths that don't exist on disk ARE not necessarily excluded.
-  This function is also used before we handle `FileChangeType_Deleted` events.
+  This function is also used before we handle `FileChangeType_Deleted` events and
+  on `didChange` events (which might be for files that don't exist on disk anymore).
 
 -}
 doShouldHandleFileOrDir :: FilePath -> IO ShouldHandle

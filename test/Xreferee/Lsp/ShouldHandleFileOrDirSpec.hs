@@ -70,6 +70,8 @@ spec = describe "shouldHandleFileOrDir" do
           check "non-existent.md" DoHandle
           check "non-existent-ignored.md" (DontHandle "untracked & git-ignored")
           check "non-existent-dir/file.md" DoHandle
+          check ".git/non-existent.md" (DontHandle "in .git dir")
+          check "../non-existent.md" (DontHandle "outside git repo")
 
           -- is directory (empty, untracked)
           Dir.createDirectory "dir-empty"
@@ -101,8 +103,6 @@ spec = describe "shouldHandleFileOrDir" do
           check "../git.log" (DontHandle "outside git repo")
           --  is outside the repo root (is directory)
           check ".." (DontHandle "outside git repo")
-          --  is outside the repo root (is invalid path)
-          check "../non-existent.md" (DontHandle "outside git repo")
           --  is outside the repo root, but is a file tracked by ANOTHER git repo.
           fileFromThisRepo <- Dir.makeAbsolute "tracked.md"
           withGitRepo "" [] \_ -> do
