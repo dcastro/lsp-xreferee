@@ -25,9 +25,15 @@ runAppM appData env act = do
 -- Config
 ----------------------------------------------------------------------------
 
-data Config = Config {}
+data Config = Config
+  { -- | Git glob specs of paths to ignore when searching for refs/anchors.
+    ignore :: [Text]
+  }
   deriving stock (Generic, Show)
   deriving anyclass (J.ToJSON, J.FromJSON)
+
+emptyConfig :: Config
+emptyConfig = Config {ignore = []}
 
 ----------------------------------------------------------------------------
 -- AppData

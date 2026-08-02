@@ -41,7 +41,8 @@ reloadAllSymbols = do
 
   -- Load all symbols from disk
   repoRootDir <- view repoRootDir
-  searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
+  cfg <- LSP.getConfig
+  searchResult <- liftIO $ X.findRefsFromGit (Util.searchOpts cfg)
 
   Symbols.insertSearchResult repoRootDir (Set.fromList openFiles) searchResult
 

@@ -18,10 +18,10 @@ import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
 
 -- The options we use to search for symbols using the `xreferee` package.
-searchOpts :: X.SearchOpts
-searchOpts =
+searchOpts :: Config -> X.SearchOpts
+searchOpts cfg =
   X.SearchOpts
-    { ignores = [],
+    { ignores = cfg.ignore,
       -- When using xreferee in the context of an editor extension (as opposed to using it in e.g. a CI),
       -- we want xreferee to detect changes done to files not yet tracked by git.
       includeUntracked = True,

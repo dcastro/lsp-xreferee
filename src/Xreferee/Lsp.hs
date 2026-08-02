@@ -114,15 +114,14 @@ run cliOptions = do
 
       serverDefinition =
         ServerDefinition
-          { defaultConfig = Config {},
+          { defaultConfig = emptyConfig,
             parseConfig = \_old v -> do
               case J.fromJSON v of
                 J.Error _e ->
-                  Right $ Config {}
+                  Right emptyConfig
                 J.Success cfg -> Right cfg,
-            -- TODO: config section
             onConfigChange = const $ pure (),
-            configSection = "lsp-xreferee",
+            configSection = "xreferee",
             doInitialize = \env _initializeMsg -> do
               runLspT env $ setWorkspaceDir appLoggers
               appEnv <- initialize appLoggers startupLoggers env
@@ -186,7 +185,8 @@ setWorkspaceDir appLogger =
 
 initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> LanguageContextEnv Config -> IO AppData
 initialize appLogger _startupLogger env = do
-  searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
+  cfg <- runLspT env LSP.getConfig
+  searchResult <- liftIO $ X.findRefsFromGit (Util.searchOpts cfg)
   conn <- Db.new
 
   repoRootDir <- Git.getRepoRoot
