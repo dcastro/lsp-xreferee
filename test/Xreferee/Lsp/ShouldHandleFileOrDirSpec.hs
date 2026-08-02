@@ -43,89 +43,84 @@ spec = describe "shouldHandleFileOrDir" do
         --
         (Tracked, "-file.md", "")
       ]
-      do
-        -- tracked and ignored
-        check "tracked-ignored.md" DoHandle
-        -- tracked and not-ignored (text file)
-        check "tracked.md" DoHandle
-        -- tracked and not-ignored (binary file)
-        check "tracked-binary.md" (DontHandle "binary file")
-        -- tracked and not-ignored (empty file)
-        check "tracked-empty.md" DoHandle
+      \repoRootDir -> do
+        let check :: (HasCallStack) => String -> ShouldHandle -> IO ()
+            check path expected = context path $ doShouldHandleFileOrDir (repoRootDir </> path) `shouldReturn` expected
 
-        -- untracked and ignored
-        check "untracked-ignored.md" (DontHandle "untracked & git-ignored")
-        -- untracked and not ignored
-        check "untracked.md" DoHandle
-        -- untracked and not ignored
-        check "untracked-binary.md" (DontHandle "binary file")
-
-        -- does not exist
-        check "non-existent.md" DoHandle
-        check "non-existent-ignored.md" (DontHandle "untracked & git-ignored")
-        check "non-existent-dir/file.md" DoHandle
-
-        -- is directory (empty, untracked)
-        Dir.createDirectory "dir-empty"
-        check "dir-empty" DoHandle
-        -- is directory (empty, untracked, ignored)
-        Dir.createDirectory "dir-empty-ignored"
-        check "dir-empty-ignored" (DontHandle "untracked & git-ignored")
-
-        -- is directory (non empty, untracked)
-        check "dir-nonempty-untracked" DoHandle
-        check "dir-nonempty-untracked/a.md" DoHandle
-        -- is directory (non empty, tracked)
-        check "dir-nonempty-tracked" DoHandle
-        check "dir-nonempty-tracked/a.md" DoHandle
-        -- is directory (not empty, untracked, ignored)
-        check "dir-nonempty-untracked-ignored" (DontHandle "untracked & git-ignored")
-        check "dir-nonempty-untracked-ignored/a.md" (DontHandle "untracked & git-ignored")
-        -- is directory (not empty, tracked, ignored)
-        check "dir-nonempty-tracked-ignored" DoHandle
-        check "dir-nonempty-tracked-ignored/a.md" DoHandle
-
-        -- binary file in a directory
-        check "dir-with-binary/binary.md" (DontHandle "binary file")
-        check "dir-with-binary" DoHandle
-
-        --  is the repo root
-        check "." DoHandle
-        --  is outside the repo root (is file)
-        check "../git.log" (DontHandle "outside git repo")
-        --  is outside the repo root (is directory)
-        check ".." (DontHandle "outside git repo")
-        --  is outside the repo root (is invalid path)
-        check "../non-existent.md" (DontHandle "outside git repo")
-        --  is outside the repo root, but is a file tracked by ANOTHER git repo.
-        fileFromThisRepo <- Dir.makeAbsolute "tracked.md"
-        withGitRepo "" [] do
-          check fileFromThisRepo (DontHandle "outside git repo")
-
-        --  is .git folder
-        check ".git" (DontHandle "in .git dir")
-        check ".git/HEAD" (DontHandle "in .git dir")
-        check ".gitignore" DoHandle
-
-        -- run from a subdirectory
+        -- Run all checks from a subdirectory, to ensure they work when
+        -- the editor's workspace dir is a subdirectory of the git repo.
         Dir.withCurrentDirectory "dir-nonempty-tracked" do
-          check "a.md" DoHandle
-          check "../untracked-ignored.md" (DontHandle "untracked & git-ignored")
-          check "../tracked-ignored.md" DoHandle
-          check "../untracked.md" DoHandle
-          check "../tracked.md" DoHandle
+          -- tracked and ignored
+          check "tracked-ignored.md" DoHandle
+          -- tracked and not-ignored (text file)
+          check "tracked.md" DoHandle
+          -- tracked and not-ignored (binary file)
+          check "tracked-binary.md" (DontHandle "binary file")
+          -- tracked and not-ignored (empty file)
+          check "tracked-empty.md" DoHandle
 
-        -- files/dirs beginning with a dash
-        check "-file.md" DoHandle
-        Dir.createDirectory "-dir"
-        check "-dir" DoHandle
+          -- untracked and ignored
+          check "untracked-ignored.md" (DontHandle "untracked & git-ignored")
+          -- untracked and not ignored
+          check "untracked.md" DoHandle
+          -- untracked and not ignored
+          check "untracked-binary.md" (DontHandle "binary file")
 
-        -- symlinks
-        Process.callProcess "ln" ["-s", "tracked.md", "symlink.md"]
-        check "symlink.md" (DontHandle "symlink")
-  where
-    check :: (HasCallStack) => String -> ShouldHandle -> IO ()
-    check path expected = context path $ doShouldHandleFileOrDir path `shouldReturn` expected
+          -- does not exist
+          check "non-existent.md" DoHandle
+          check "non-existent-ignored.md" (DontHandle "untracked & git-ignored")
+          check "non-existent-dir/file.md" DoHandle
+
+          -- is directory (empty, untracked)
+          Dir.createDirectory "dir-empty"
+          check "dir-empty" DoHandle
+          -- is directory (empty, untracked, ignored)
+          Dir.createDirectory "dir-empty-ignored"
+          check "dir-empty-ignored" (DontHandle "untracked & git-ignored")
+
+          -- is directory (non empty, untracked)
+          check "dir-nonempty-untracked" DoHandle
+          check "dir-nonempty-untracked/a.md" DoHandle
+          -- is directory (non empty, tracked)
+          check "dir-nonempty-tracked" DoHandle
+          check "dir-nonempty-tracked/a.md" DoHandle
+          -- is directory (not empty, untracked, ignored)
+          check "dir-nonempty-untracked-ignored" (DontHandle "untracked & git-ignored")
+          check "dir-nonempty-untracked-ignored/a.md" (DontHandle "untracked & git-ignored")
+          -- is directory (not empty, tracked, ignored)
+          check "dir-nonempty-tracked-ignored" DoHandle
+          check "dir-nonempty-tracked-ignored/a.md" DoHandle
+
+          -- binary file in a directory
+          check "dir-with-binary/binary.md" (DontHandle "binary file")
+          check "dir-with-binary" DoHandle
+
+          --  is the repo root
+          check "." DoHandle
+          --  is outside the repo root (is file)
+          check "../git.log" (DontHandle "outside git repo")
+          --  is outside the repo root (is directory)
+          check ".." (DontHandle "outside git repo")
+          --  is outside the repo root (is invalid path)
+          check "../non-existent.md" (DontHandle "outside git repo")
+          --  is outside the repo root, but is a file tracked by ANOTHER git repo.
+          fileFromThisRepo <- Dir.makeAbsolute "tracked.md"
+          withGitRepo "" [] \_ -> do
+            context fileFromThisRepo $ doShouldHandleFileOrDir fileFromThisRepo `shouldReturn` DontHandle "outside git repo"
+
+          --  is .git folder
+          check ".git" (DontHandle "in .git dir")
+          check ".git/HEAD" (DontHandle "in .git dir")
+          check ".gitignore" DoHandle
+
+          -- files/dirs beginning with a dash
+          check "-file.md" DoHandle
+          Dir.createDirectory "-dir"
+          check "-dir" DoHandle
+
+          -- symlinks
+          Process.callProcess "ln" ["-s", "tracked.md", repoRootDir </> "symlink.md"]
+          check "symlink.md" (DontHandle "symlink")
 
 data GitFileState
   = Tracked
@@ -133,7 +128,7 @@ data GitFileState
   deriving stock (Show, Eq)
 
 -- | Create a temporary git repo whose files are in the given states.
-withGitRepo :: String -> [(GitFileState, FilePath, Text)] -> IO a -> IO a
+withGitRepo :: String -> [(GitFileState, FilePath, Text)] -> (FilePath -> IO a) -> IO a
 withGitRepo gitignore files action = do
   withSystemTempDirectory "git.XXXX" $ \tmpdir -> do
     let gitdir = tmpdir </> "repo"
@@ -164,7 +159,7 @@ withGitRepo gitignore files action = do
       git ["commit", "-m", "Add .gitignore", "--no-verify"]
 
       -- Run the test action
-      action
+      action gitdir
   where
     captureLogs logFile f = f `Ex.onException` (T.readFile logFile >>= putStrLn)
 
