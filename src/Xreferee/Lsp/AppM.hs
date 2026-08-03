@@ -26,7 +26,8 @@ runAppM appData env act = do
 ----------------------------------------------------------------------------
 
 data Config = Config
-  { -- | Git glob specs of paths to ignore when searching for refs/anchors.
+  { -- | Git pathspecs to ignore when searching for refs/anchors.
+    -- See: https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefpathspecapathspec
     ignore :: [Text]
   }
   deriving stock (Generic, Show)

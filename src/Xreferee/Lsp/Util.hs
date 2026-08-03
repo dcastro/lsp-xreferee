@@ -8,6 +8,7 @@ import Data.Map.Strict qualified as SM
 import Data.Text qualified as T
 import GHC.IO.Exception (IOErrorType (InappropriateType))
 import Language.LSP.Protocol.Types qualified as LSP
+import Language.LSP.Server qualified as LSP
 import System.Directory qualified as Dir
 import System.FilePath qualified as FP
 import XReferee.SearchResult qualified as X
@@ -51,6 +52,7 @@ uriAddTrailingPathSeparator uri =
 shouldHandleFileOrDir :: Uri -> AppM Bool
 shouldHandleFileOrDir uri = do
   appState0 <- getState
+  cfg <- LSP.getConfig
   -- Check if we have this result cached from a previous check.
   case SM.lookup uri appState0.shouldHandleFiles of
     Just should -> pure should
@@ -64,7 +66,7 @@ shouldHandleFileOrDir uri = do
         -- exist on disk, so there's nothing for us to process. This is expected,
         -- not an error, so we quietly decline to handle them rather than throwing.
         Nothing -> pure $ DontHandle "non-file URI scheme"
-        Just fp -> liftIO $ doShouldHandleFileOrDir fp
+        Just fp -> liftIO $ doShouldHandleFileOrDir cfg.ignore fp
 
       shouldBool <- case should of
         DoHandle -> pure True
@@ -86,20 +88,22 @@ shouldHandleFileOrDir uri = do
     * The ".git" folder
     * Paths outside the git repo root
     * Symlinks
-
+    * Paths that match the "force ignore" pathspecs
+1
   NOTE: Paths that don't exist on disk ARE not necessarily excluded.
   This function is also used before we handle `FileChangeType_Deleted` events and
   on `didChange` events (which might be for files that don't exist on disk anymore).
 
 -}
-doShouldHandleFileOrDir :: FilePath -> IO ShouldHandle
-doShouldHandleFileOrDir fp = do
+doShouldHandleFileOrDir :: [Text] -> FilePath -> IO ShouldHandle
+doShouldHandleFileOrDir forceIgnorePathSpecs fp = do
   result <- runExceptT do
     checkSymlink
     checkUntrackedIgnored
     -- `git check-ignore` will not flag the `.git` folder, so we have to check it manually
     checkIsInGitDir
     checkIsBinaryFile
+    checkForceIgnore
     pure DoHandle
 
   pure $ either id id result
@@ -114,7 +118,7 @@ doShouldHandleFileOrDir fp = do
               else rethrowIO e
       case isSymlink of
         Nothing ->
-          -- File does not exist
+          -- The path does not exist
           pure ()
         Just True ->
           throwError $ DontHandle "symlink"
@@ -150,7 +154,17 @@ doShouldHandleFileOrDir fp = do
           pure ()
         False -> do
           -- If it's a file, we need to check whether it's a binary file
-          liftIO (Git.lsFiles fp) >>= \case
+          lsFilesRes <-
+            liftIO $
+              Git.lsFiles
+                [ -- Treat `fp` as a literal path, and not as a glob pathspec.
+                  "--literal-pathspecs"
+                ]
+                [ -- Print "eolinfo", which we use to determine whether a file is binary or not. See: https://stackoverflow.com/a/66796286/857807
+                  "--eol"
+                ]
+                [fp]
+          case lsFilesRes of
             Nothing ->
               -- The file is not in this git repo
               throwError $ DontHandle "outside git repo"
@@ -171,6 +185,42 @@ doShouldHandleFileOrDir fp = do
               let isBinary = "w/-text" `T.isInfixOf` stdout
               when isBinary do
                 throwError $ DontHandle "binary file"
+
+    -- Check if the `Config.ignore` pathspecs apply to this path.
+    -- If they do, we don't want to handle it.
+    checkForceIgnore :: ExceptT ShouldHandle IO ()
+    checkForceIgnore = do
+      when (not $ null forceIgnorePathSpecs) do
+        -- If the path does not exist on disk, ls-files will always result in an empty stdout,
+        -- which means the result is inconclusive.
+        -- We can't tell whether the "force ignore" pathspecs would apply to the path.
+        -- So we use `doesPathExist` to short-circuit.
+        liftIO (Dir.doesPathExist fp) >>= \case
+          False -> do
+            -- The path does not exist
+            pure ()
+          True -> do
+            lsFilesRes <-
+              liftIO $
+                Git.lsFiles
+                  []
+                  [ -- If a directory is untracked, list only its name, not its contents.
+                    -- Other directories will still have their contents listed though.
+                    "--directory"
+                  ]
+                  ( (":(literal)" <> fp)
+                      : (forceIgnorePathSpecs <&> \ignore -> ":!" <> unpack ignore)
+                  )
+            case lsFilesRes of
+              Nothing ->
+                -- The file is not in this git repo
+                throwError $ DontHandle "outside git repo"
+              Just stdout ->
+                -- If we know the path exists on disk, and this ls-files command returns nothing,
+                -- then we know one or more of the "force ignore" pathspecs apply to this path.
+                if T.null stdout
+                  then throwError $ DontHandle "force ignored"
+                  else pure ()
 
 data ShouldHandle
   = DoHandle

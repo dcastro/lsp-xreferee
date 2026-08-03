@@ -45,7 +45,26 @@ spec = describe "shouldHandleFileOrDir" do
       ]
       \repoRootDir -> do
         let check :: (HasCallStack) => String -> ShouldHandle -> IO ()
-            check path expected = context path $ doShouldHandleFileOrDir (repoRootDir </> path) `shouldReturn` expected
+            check path expected =
+              context path do
+                let absolutePath = repoRootDir </> path
+
+                -- Check that we get the expected result.
+                res <- doShouldHandleFileOrDir [] absolutePath
+                res `shouldBe` expected
+
+                exists <- Dir.doesPathExist absolutePath
+
+                if exists
+                  then do
+                    -- If the file exist and we should handle it,
+                    -- then using a "force ignore" pathspec should cause it to be ignored.
+                    when (res == DoHandle) $ do
+                      doShouldHandleFileOrDir ["/*"] absolutePath `shouldReturn` DontHandle "force ignored"
+                  else do
+                    -- If the file does not exist, then using a "force ignore" pathspec should not change the result.
+                    -- Pathspecs can only be checked against paths that do exists on disk.
+                    doShouldHandleFileOrDir ["/*"] absolutePath `shouldReturn` expected
 
         -- Run all checks from a subdirectory, to ensure they work when
         -- the editor's workspace dir is a subdirectory of the git repo.
@@ -106,7 +125,7 @@ spec = describe "shouldHandleFileOrDir" do
           --  is outside the repo root, but is a file tracked by ANOTHER git repo.
           fileFromThisRepo <- Dir.makeAbsolute "tracked.md"
           withGitRepo "" [] \_ -> do
-            context fileFromThisRepo $ doShouldHandleFileOrDir fileFromThisRepo `shouldReturn` DontHandle "outside git repo"
+            context fileFromThisRepo $ doShouldHandleFileOrDir [] fileFromThisRepo `shouldReturn` DontHandle "outside git repo"
 
           --  is .git folder
           check ".git" (DontHandle "in .git dir")
