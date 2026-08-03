@@ -33,20 +33,21 @@ getRepoRoot = do
     ExitSuccess -> pure $ T.unpack $ T.strip $ T.pack stdout
     _ -> throwIO $ userError "Failed to get git repo root"
 
-lsFiles :: FilePath -> IO (Maybe Text)
-lsFiles fp = do
+lsFiles :: [String] -> [String] -> [String] -> IO (Maybe Text)
+lsFiles globalOptions options pathSpecs = do
   (exitCode, stdout, _stderr) <-
     P.readProcessWithExitCode
       "git"
-      [ "--literal-pathspecs", -- Treat `fp` as a literal path, and not as a glob pathspec.
-        "ls-files",
-        "--eol", -- Print "eolinfo", which we use to determine whether a file is binary or not. See: https://stackoverflow.com/a/66796286/857807
-        "--others", -- Consider untracked files
-        "--cached", -- Consider tracked files
-        "--exclude-standard", -- Don't consider files ignored by git
-        "--",
-        fp
-      ]
+      ( globalOptions
+          <> [ "ls-files",
+               "--others", -- Consider untracked files
+               "--cached", -- Consider tracked files
+               "--exclude-standard" -- Don't consider files ignored by git
+             ]
+          <> options
+          <> ["--"]
+          <> pathSpecs
+      )
       ""
   case exitCode of
     ExitSuccess -> pure $ Just $ T.pack stdout
