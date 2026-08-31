@@ -99,10 +99,10 @@ spec = describe "shouldHandleFileOrDir" do
           check "../non-existent.md" (DontHandle "outside git repo")
 
           -- is directory (empty, untracked)
-          Dir.createDirectory "dir-empty"
+          Dir.createDirectory $ repoRootDir </> "dir-empty"
           check "dir-empty" DoHandle
           -- is directory (empty, untracked, ignored)
-          Dir.createDirectory "dir-empty-ignored"
+          Dir.createDirectory $ repoRootDir </> "dir-empty-ignored"
           check "dir-empty-ignored" (DontHandle "untracked & git-ignored")
 
           -- is directory (non empty, untracked)
