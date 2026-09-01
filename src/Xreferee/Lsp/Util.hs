@@ -5,6 +5,7 @@ module Xreferee.Lsp.Util where
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map.Strict qualified as SM
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import GHC.IO.Exception (IOErrorType (InappropriateType))
 import Language.LSP.Protocol.Types qualified as LSP
@@ -200,30 +201,60 @@ doShouldHandleFileOrDir forceIgnorePathSpecs fp = do
             -- The path does not exist
             pure ()
           True -> do
-            lsFilesRes <-
-              liftIO $
+            {-
+              Note: the first implementation of this function ran:
+
+                git ls-files --directory :!<force-ignore-pathspec> :(literal)<path>
+
+              And if the output was empty, we assumed the path was force-ignored.
+
+              However, this wasn't reliable, because negative pathspecs (i.e. `:!<pathspec>`) have a bug, see:
+                * https://lore.kernel.org/git/e2dbe996f6a7285fe0487e34d65eccf712867547.camel@redhat.com/T/#u
+                * https://github.com/git/git/pull/2391
+
+              An alternative solution is to:
+                * Run ls-files to retrieve all files that are force-ignored
+                * Run ls-files to retrieve all files under the given filepath
+                * Check that all files under the given filepath are also force-ignored
+
+            -}
+
+            filesUnder <-
+              Git.lsFiles
+                []
+                [ -- When run from a subdirectory, the command usually outputs paths relative to the current directory.
+                  -- This option forces paths to be output relative to the project top directory.
+                  "--full-name",
+                  -- Without "-z", git wraps filepaths with unusual characters (e.g. `\n`) in quotes.
+                  -- `-z` tells git to return the paths as-is, and lines will be separated by `\0` instead of `\n`.
+                  "-z"
+                ]
+                [":(literal)" <> fp]
+                & liftIO
+                >>= maybe (throwError $ DontHandle "outside git repo") pure
+                  <&> T.splitOn "\0"
+                  <&> filter (not . T.null)
+                  <&> Set.fromList
+
+            -- If there are no files under the given filepath,
+            -- then this check is inconclusive (`filesUnder `Set.isSubsetOf` ignoredFiles` would always be True).
+            -- In that case, we skip the check.
+            when (not (Set.null filesUnder)) do
+              ignoredFiles <-
                 Git.lsFiles
                   []
-                  [ -- If a directory is untracked, list only its name, not its contents.
-                    -- Other directories will still have their contents listed though.
-                    --
-                    -- Also, without this option, `ls-files` would return no output for an empty directory,
-                    -- causing it to be excluded.
-                    "--directory"
+                  [ "--full-name",
+                    "-z"
                   ]
-                  ( (":(literal)" <> fp)
-                      : (forceIgnorePathSpecs <&> \ignore -> ":!" <> unpack ignore)
-                  )
-            case lsFilesRes of
-              Nothing ->
-                -- The file is not in this git repo
-                throwError $ DontHandle "outside git repo"
-              Just stdout -> do
-                -- If we know the path exists on disk, and this ls-files command returns nothing,
-                -- then we know one or more of the "force ignore" pathspecs apply to this path.
-                if T.null stdout
-                  then throwError $ DontHandle "force ignored"
-                  else pure ()
+                  (forceIgnorePathSpecs <&> \ignore -> ":" <> unpack ignore)
+                  & liftIO
+                  >>= maybe (throwError $ DontHandle "malformed configuration setting: `xreferee.ignore`") pure
+                    <&> T.splitOn "\0"
+                    <&> filter (not . T.null)
+                    <&> Set.fromList
+
+              when (filesUnder `Set.isSubsetOf` ignoredFiles) do
+                throwError $ DontHandle "force ignored"
 
 data ShouldHandle
   = DoHandle

@@ -58,19 +58,24 @@ spec = describe "shouldHandleFileOrDir" do
                 res <- doShouldHandleFileOrDir ["some-unrelated-pattern"] absolutePath
                 res `shouldBe` expected
 
-              exists <- Dir.doesPathExist absolutePath
-
               context (path <> " - with force ignore") do
-                if exists
+                exists <- Dir.doesPathExist absolutePath
+                isEmptyDir <- Dir.doesDirectoryExist absolutePath >>= \isDir -> if isDir then Dir.listDirectory absolutePath <&> null else pure False
+                if not exists
                   then do
-                    -- If the file exist and we should handle it,
-                    -- then using a "force ignore" pathspec should cause it to be ignored.
-                    when (expected == DoHandle) $ do
-                      doShouldHandleFileOrDir ["/*"] absolutePath `shouldReturn` DontHandle "force ignored"
-                  else do
                     -- If the file does not exist, then using a "force ignore" pathspec should not change the result.
                     -- Pathspecs can only be checked against paths that do exists on disk.
                     doShouldHandleFileOrDir ["/*"] absolutePath `shouldReturn` expected
+                  else
+                    if isEmptyDir
+                      then do
+                        -- We can't check "force ignore" pathspecs against empty directories either.
+                        doShouldHandleFileOrDir ["/*"] absolutePath `shouldReturn` expected
+                      else do
+                        -- In all other scenarios: if we should handle it,
+                        -- then using a "force ignore" pathspec should cause it to be ignored.
+                        when (expected == DoHandle) $ do
+                          doShouldHandleFileOrDir ["/*"] absolutePath `shouldReturn` DontHandle "force ignored"
 
         -- Run all checks from a subdirectory, to ensure they work when
         -- the editor's workspace dir is a subdirectory of the git repo.
@@ -146,6 +151,15 @@ spec = describe "shouldHandleFileOrDir" do
           -- symlinks
           Process.callProcess "ln" ["-s", "tracked.md", repoRootDir </> "symlink.md"]
           check "symlink.md" (DontHandle "symlink")
+
+          -- `git ls-files`'s "exclude pathspecs" aren't reliable, see this bug:
+          -- https://lore.kernel.org/git/e2dbe996f6a7285fe0487e34d65eccf712867547.camel@redhat.com/T/#u
+          --
+          -- I fixed it here: https://github.com/git/git/pull/2391
+          -- But we still shouldn't rely on the user having installed a git version with the fix.
+          -- So our implementation should not use `:!` / `:(exclude)` pathspecs.
+          context "git ls-files bug" do
+            doShouldHandleFileOrDir ["/some-ignore-path"] (repoRootDir </> "dir-nonempty-tracked/a.md") `shouldReturn` DoHandle
 
 data GitFileState
   = Tracked
