@@ -30,3 +30,9 @@ withException action act = do
       Ex.catchNoPropagate @e action \e@(Ex.ExceptionWithContext _ inner) -> do
         _ <- act inner
         Ex.rethrowIO e
+
+-- | An "expected" error.
+data XrefereeUserError = XrefereeUserError {exMsg :: Text}
+  deriving stock (Show)
+
+instance Exception XrefereeUserError

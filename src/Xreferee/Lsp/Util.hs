@@ -248,7 +248,7 @@ doShouldHandleFileOrDir forceIgnorePathSpecs fp = do
                   ]
                   (forceIgnorePathSpecs <&> \ignore -> ":" <> unpack ignore)
                   & liftIO
-                  >>= maybe (throwError $ DontHandle "malformed configuration setting: `xreferee.ignore`") pure
+                  >>= maybe (throwIO $ XrefereeUserError "malformed configuration setting: `xreferee.ignore`") pure
                     <&> T.splitOn "\0"
                     <&> filter (not . T.null)
                     <&> Set.fromList

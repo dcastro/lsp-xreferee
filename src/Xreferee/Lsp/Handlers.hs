@@ -35,7 +35,12 @@ setupNotHandler handler msg = do
 -- Send a message to the client, but don't recover - let the LSP crash.
 exHandler :: SomeException -> AppM ()
 exHandler ex = do
-  Log.err ("xreferee failed:\n" <> pack (displayFullException ex))
+  case fromException @XrefereeUserError ex of
+    Just ex ->
+      -- `XrefereeUserError` are expected errors, so there's no need to log the backtrace.
+      Log.err ex.exMsg
+    Nothing ->
+      Log.err ("xreferee failed:\n" <> pack (displayFullException ex))
 
 timed :: LSP.SMethod method -> AppM a -> AppM a
 timed method action = do
