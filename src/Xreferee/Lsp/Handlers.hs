@@ -19,7 +19,7 @@ setupReqHandler handler msg responder = do
   let method = msg._method
   annotateStackStringIO ("Handling " <> show method) do
     flip withException exHandler do
-      timed method do
+      timed (tshow method) do
         handler msg responder
         sendDiagnostics
 
@@ -28,9 +28,18 @@ setupNotHandler handler msg = do
   let method = msg._method
   annotateStackStringIO ("Handling " <> show method) do
     flip withException exHandler do
-      timed method do
+      timed (tshow method) do
         handler msg
         sendDiagnostics
+
+setupAction :: Text -> AppM a -> AppM a
+setupAction actionName action = do
+  annotateStackStringIO ("Handling " <> unpack actionName) do
+    flip withException exHandler do
+      timed actionName do
+        a <- action
+        sendDiagnostics
+        pure a
 
 -- Send a message to the client, but don't recover - let the LSP crash.
 exHandler :: SomeException -> AppM ()
@@ -42,11 +51,11 @@ exHandler ex = do
     Nothing ->
       Log.err ("xreferee failed:\n" <> pack (displayFullException ex))
 
-timed :: LSP.SMethod method -> AppM a -> AppM a
-timed method action = do
+timed :: Text -> AppM a -> AppM a
+timed actionName action = do
   t0 <- liftIO Time.getPOSIXTime
   result <- action
   t1 <- liftIO Time.getPOSIXTime
   let duration = t1 - t0
-  Log.debugP ("Handled " <> tshow method <> " in") duration
+  Log.debugP ("Handled " <> actionName <> " in") duration
   pure result

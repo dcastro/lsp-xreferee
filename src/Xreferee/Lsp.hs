@@ -36,6 +36,7 @@ import Xreferee.Lsp.Handlers.Definition (handleDefinition)
 import Xreferee.Lsp.Handlers.DidChange (handleDidChange)
 import Xreferee.Lsp.Handlers.DidClose (handleDidClose)
 import Xreferee.Lsp.Handlers.DidOpen (handleDidOpen)
+import Xreferee.Lsp.Handlers.OnConfigChange qualified as Handlers
 import Xreferee.Lsp.Handlers.PrepareRename (handlePrepareRename)
 import Xreferee.Lsp.Handlers.References (handleReferences)
 import Xreferee.Lsp.Handlers.Rename (handleRename)
@@ -120,7 +121,7 @@ run cliOptions = do
                 J.Error _e ->
                   Right emptyConfig
                 J.Success cfg -> Right cfg,
-            onConfigChange = const $ pure (),
+            onConfigChange = Handlers.setupAction "onConfigChange" . Handlers.onConfigChange,
             configSection = "xreferee",
             doInitialize = \env _initializeMsg -> do
               runLspT env $ setWorkspaceDir appLoggers
@@ -195,7 +196,8 @@ initialize appLogger _startupLogger env = do
       AppState
         { filesWithDiagnostics = Set.empty,
           shouldHandleFiles = SM.empty,
-          isDbDirty = False
+          isDbDirty = False,
+          lastConfig = cfg
         }
   let appData =
         AppData
@@ -248,11 +250,11 @@ handlers =
         repoRootDir <- view repoRootDir
         Log.info $ "Repo root directory: " <> pack repoRootDir
         FileWatchers.watchRepoFiles,
+      -- We need an empty handler for `workspace/didChangeConfiguration` otherwise `lsp` throws "no handler for" errors.
+      -- The actual handling happens in `ServerDefinition.onConfigChange`.
+      notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \_msg -> pure (),
       notificationHandler LSP.SMethod_TextDocumentDidOpen $ filterNot handleDidOpen,
       notificationHandler LSP.SMethod_TextDocumentDidClose $ filterNot handleDidClose,
-      notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \_msg -> do
-        cfg <- getConfig
-        Log.debugP "Configuration changed" cfg,
       notificationHandler LSP.SMethod_TextDocumentDidChange $ filterNot handleDidChange,
       requestHandler LSP.SMethod_TextDocumentPrepareRename $ filterReq handlePrepareRename,
       requestHandler LSP.SMethod_TextDocumentRename $ filterReq handleRename,

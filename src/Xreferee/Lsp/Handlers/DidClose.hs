@@ -11,7 +11,7 @@ import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
 
--- | Handle `didCLose` notifications.
+-- | Handle `didClose` notifications.
 handleDidClose :: Handler AppM 'LSP.Method_TextDocumentDidClose
 handleDidClose = \req -> do
   Log.logNot req
