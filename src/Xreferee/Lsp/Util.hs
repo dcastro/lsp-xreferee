@@ -248,7 +248,7 @@ doShouldHandleFileOrDir forceIgnorePathSpecs fp = do
                   ]
                   (forceIgnorePathSpecs <&> \ignore -> ":" <> unpack ignore)
                   & liftIO
-                  >>= maybe (throwIO $ XrefereeUserError "malformed configuration setting: `xreferee.ignore`") pure
+                  >>= maybe (throwIO $ userError "checkForceIgnore: 'git ls-files' failed") pure
                     <&> T.splitOn "\0"
                     <&> filter (not . T.null)
                     <&> Set.fromList
