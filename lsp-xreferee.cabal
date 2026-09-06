@@ -63,6 +63,7 @@ library
     ExceptionUtil
     Xreferee.Lsp
     Xreferee.Lsp.AppM
+    Xreferee.Lsp.Config
     Xreferee.Lsp.Db
     Xreferee.Lsp.Exception
     Xreferee.Lsp.FileWatchers
@@ -74,6 +75,7 @@ library
     Xreferee.Lsp.Handlers.DidChangeWatchedFiles
     Xreferee.Lsp.Handlers.DidClose
     Xreferee.Lsp.Handlers.DidOpen
+    Xreferee.Lsp.Handlers.OnConfigChange
     Xreferee.Lsp.Handlers.PrepareRename
     Xreferee.Lsp.Handlers.References
     Xreferee.Lsp.Handlers.Rename

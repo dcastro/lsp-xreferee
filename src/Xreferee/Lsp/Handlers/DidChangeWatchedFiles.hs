@@ -108,7 +108,7 @@ handleFileEvent evt =
               pure ()
             Right contents -> do
               Log.debug $ "didChangeWatchedFiles: CreatedOrChanged: loading file from disk: " <> tshow path
-              Symbols.refreshSymbolsForFile uri contents
+              Symbols.reloadSymbolsForFile uri contents
     Deleted -> do
       filesWithSymbols <- Db.findFilesInPathWithSymbols evt.uri
       for_ filesWithSymbols \uri -> do

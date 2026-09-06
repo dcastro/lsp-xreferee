@@ -2,7 +2,7 @@ module Xreferee.Lsp.DbSpec where
 
 import Data.Set qualified as Set
 import Language.LSP.Protocol.Types qualified as LSP
-import Xreferee.Lsp.AppM (AppData (..), AppEnv (..), AppState (..))
+import Xreferee.Lsp.AppM (AppData (..), AppEnv (..), AppState (..), emptyConfig)
 import Xreferee.Lsp.Db (Symbol (..))
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.TestPrelude
@@ -39,7 +39,8 @@ runDb act = do
       AppState
         { filesWithDiagnostics = mempty,
           shouldHandleFiles = mempty,
-          isDbDirty = False
+          isDbDirty = False,
+          lastConfig = emptyConfig
         }
 
   let appData =

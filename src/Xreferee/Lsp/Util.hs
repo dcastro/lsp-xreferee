@@ -5,9 +5,11 @@ module Xreferee.Lsp.Util where
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map.Strict qualified as SM
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import GHC.IO.Exception (IOErrorType (InappropriateType))
 import Language.LSP.Protocol.Types qualified as LSP
+import Language.LSP.Server qualified as LSP
 import System.Directory qualified as Dir
 import System.FilePath qualified as FP
 import XReferee.SearchResult qualified as X
@@ -18,10 +20,10 @@ import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
 
 -- The options we use to search for symbols using the `xreferee` package.
-searchOpts :: X.SearchOpts
-searchOpts =
+searchOpts :: Config -> X.SearchOpts
+searchOpts cfg =
   X.SearchOpts
-    { ignores = [],
+    { ignores = cfg.ignore,
       -- When using xreferee in the context of an editor extension (as opposed to using it in e.g. a CI),
       -- we want xreferee to detect changes done to files not yet tracked by git.
       includeUntracked = True,
@@ -51,6 +53,7 @@ uriAddTrailingPathSeparator uri =
 shouldHandleFileOrDir :: Uri -> AppM Bool
 shouldHandleFileOrDir uri = do
   appState0 <- getState
+  cfg <- LSP.getConfig
   -- Check if we have this result cached from a previous check.
   case SM.lookup uri appState0.shouldHandleFiles of
     Just should -> pure should
@@ -64,7 +67,7 @@ shouldHandleFileOrDir uri = do
         -- exist on disk, so there's nothing for us to process. This is expected,
         -- not an error, so we quietly decline to handle them rather than throwing.
         Nothing -> pure $ DontHandle "non-file URI scheme"
-        Just fp -> liftIO $ doShouldHandleFileOrDir fp
+        Just fp -> liftIO $ doShouldHandleFileOrDir cfg.ignore fp
 
       shouldBool <- case should of
         DoHandle -> pure True
@@ -86,19 +89,22 @@ shouldHandleFileOrDir uri = do
     * The ".git" folder
     * Paths outside the git repo root
     * Symlinks
+    * Paths that match the "force ignore" pathspecs
 
   NOTE: Paths that don't exist on disk ARE not necessarily excluded.
-  This function is also used before we handle `FileChangeType_Deleted` events.
+  This function is also used before we handle `FileChangeType_Deleted` events and
+  on `didChange` events (which might be for files that don't exist on disk anymore).
 
 -}
-doShouldHandleFileOrDir :: FilePath -> IO ShouldHandle
-doShouldHandleFileOrDir fp = do
+doShouldHandleFileOrDir :: [Text] -> FilePath -> IO ShouldHandle
+doShouldHandleFileOrDir forceIgnorePathSpecs fp = do
   result <- runExceptT do
     checkSymlink
     checkUntrackedIgnored
     -- `git check-ignore` will not flag the `.git` folder, so we have to check it manually
     checkIsInGitDir
     checkIsBinaryFile
+    checkForceIgnore
     pure DoHandle
 
   pure $ either id id result
@@ -113,7 +119,7 @@ doShouldHandleFileOrDir fp = do
               else rethrowIO e
       case isSymlink of
         Nothing ->
-          -- File does not exist
+          -- The path does not exist
           pure ()
         Just True ->
           throwError $ DontHandle "symlink"
@@ -149,7 +155,17 @@ doShouldHandleFileOrDir fp = do
           pure ()
         False -> do
           -- If it's a file, we need to check whether it's a binary file
-          liftIO (Git.lsFiles fp) >>= \case
+          lsFilesRes <-
+            liftIO $
+              Git.lsFiles
+                [ -- Treat `fp` as a literal path, and not as a glob pathspec.
+                  "--literal-pathspecs"
+                ]
+                [ -- Print "eolinfo", which we use to determine whether a file is binary or not. See: https://stackoverflow.com/a/66796286/857807
+                  "--eol"
+                ]
+                [fp]
+          case lsFilesRes of
             Nothing ->
               -- The file is not in this git repo
               throwError $ DontHandle "outside git repo"
@@ -170,6 +186,75 @@ doShouldHandleFileOrDir fp = do
               let isBinary = "w/-text" `T.isInfixOf` stdout
               when isBinary do
                 throwError $ DontHandle "binary file"
+
+    -- Check if the `Config.ignore` pathspecs apply to this path.
+    -- If they do, we don't want to handle it.
+    checkForceIgnore :: ExceptT ShouldHandle IO ()
+    checkForceIgnore = do
+      when (not $ null forceIgnorePathSpecs) do
+        -- If the path does not exist on disk, ls-files will always result in an empty stdout,
+        -- which means the result is inconclusive.
+        -- We can't tell whether the "force ignore" pathspecs would apply to the path.
+        -- So we use `doesPathExist` to short-circuit.
+        liftIO (Dir.doesPathExist fp) >>= \case
+          False -> do
+            -- The path does not exist
+            pure ()
+          True -> do
+            {-
+              Note: the first implementation of this function ran:
+
+                git ls-files --directory :!<force-ignore-pathspec> :(literal)<path>
+
+              And if the output was empty, we assumed the path was force-ignored.
+
+              However, this wasn't reliable, because negative pathspecs (i.e. `:!<pathspec>`) have a bug, see:
+                * https://lore.kernel.org/git/e2dbe996f6a7285fe0487e34d65eccf712867547.camel@redhat.com/T/#u
+                * https://github.com/git/git/pull/2391
+
+              An alternative solution is to:
+                * Run ls-files to retrieve all files that are force-ignored
+                * Run ls-files to retrieve all files under the given filepath
+                * Check that all files under the given filepath are also force-ignored
+
+            -}
+
+            filesUnder <-
+              Git.lsFiles
+                []
+                [ -- When run from a subdirectory, the command usually outputs paths relative to the current directory.
+                  -- This option forces paths to be output relative to the project top directory.
+                  "--full-name",
+                  -- Without "-z", git wraps filepaths with unusual characters (e.g. `\n`) in quotes.
+                  -- `-z` tells git to return the paths as-is, and lines will be separated by `\0` instead of `\n`.
+                  "-z"
+                ]
+                [":(literal)" <> fp]
+                & liftIO
+                >>= maybe (throwError $ DontHandle "outside git repo") pure
+                  <&> T.splitOn "\0"
+                  <&> filter (not . T.null)
+                  <&> Set.fromList
+
+            -- If there are no files under the given filepath,
+            -- then this check is inconclusive (`filesUnder `Set.isSubsetOf` ignoredFiles` would always be True).
+            -- In that case, we skip the check.
+            when (not (Set.null filesUnder)) do
+              ignoredFiles <-
+                Git.lsFiles
+                  []
+                  [ "--full-name",
+                    "-z"
+                  ]
+                  (forceIgnorePathSpecs <&> \ignore -> ":" <> unpack ignore)
+                  & liftIO
+                  >>= maybe (throwIO $ userError "checkForceIgnore: 'git ls-files' failed") pure
+                    <&> T.splitOn "\0"
+                    <&> filter (not . T.null)
+                    <&> Set.fromList
+
+              when (filesUnder `Set.isSubsetOf` ignoredFiles) do
+                throwError $ DontHandle "force ignored"
 
 data ShouldHandle
   = DoHandle

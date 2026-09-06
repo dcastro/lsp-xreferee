@@ -28,6 +28,7 @@ import System.FilePath qualified as FP
 import System.IO qualified as SIO
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Config qualified as Config
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.FileWatchers qualified as FileWatchers
 import Xreferee.Lsp.Git qualified as Git
@@ -36,6 +37,7 @@ import Xreferee.Lsp.Handlers.Definition (handleDefinition)
 import Xreferee.Lsp.Handlers.DidChange (handleDidChange)
 import Xreferee.Lsp.Handlers.DidClose (handleDidClose)
 import Xreferee.Lsp.Handlers.DidOpen (handleDidOpen)
+import Xreferee.Lsp.Handlers.OnConfigChange qualified as Handlers
 import Xreferee.Lsp.Handlers.PrepareRename (handlePrepareRename)
 import Xreferee.Lsp.Handlers.References (handleReferences)
 import Xreferee.Lsp.Handlers.Rename (handleRename)
@@ -114,15 +116,14 @@ run cliOptions = do
 
       serverDefinition =
         ServerDefinition
-          { defaultConfig = Config {},
+          { defaultConfig = emptyConfig,
             parseConfig = \_old v -> do
               case J.fromJSON v of
                 J.Error _e ->
-                  Right $ Config {}
+                  Right emptyConfig
                 J.Success cfg -> Right cfg,
-            -- TODO: config section
-            onConfigChange = const $ pure (),
-            configSection = "lsp-xreferee",
+            onConfigChange = Handlers.setupAction "onConfigChange" . Handlers.onConfigChange,
+            configSection = "xreferee",
             doInitialize = \env _initializeMsg -> do
               runLspT env $ setWorkspaceDir appLoggers
               appEnv <- initialize appLoggers startupLoggers env
@@ -186,26 +187,38 @@ setWorkspaceDir appLogger =
 
 initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> LanguageContextEnv Config -> IO AppData
 initialize appLogger _startupLogger env = do
-  searchResult <- liftIO $ X.findRefsFromGit Util.searchOpts
-  conn <- Db.new
-
+  -- Create AppEnv
   repoRootDir <- Git.getRepoRoot
+  conn <- Db.new
+  let appEnv =
+        AppEnv
+          { logger = appLogger,
+            repoRootDir = repoRootDir,
+            logPayloads = False,
+            conn
+          }
+
+  -- Validate initial config
+  cfg <- runLspT env $ flip runReaderT appEnv do
+    Config.ensureConfigIsValid
+      -- Fallback to this if the server was initialized with an invalid `ignore` setting.
+      emptyConfig.ignore
+    LSP.getConfig
+
+  -- Load symbols and create AppState
+  searchResult <- liftIO $ X.findRefsFromGit (Util.searchOpts cfg)
+
   state <-
     newMVar
       AppState
         { filesWithDiagnostics = Set.empty,
           shouldHandleFiles = SM.empty,
-          isDbDirty = False
+          isDbDirty = False,
+          lastConfig = cfg
         }
   let appData =
         AppData
-          { env =
-              AppEnv
-                { logger = appLogger,
-                  repoRootDir = repoRootDir,
-                  logPayloads = False,
-                  conn
-                },
+          { env = appEnv,
             state
           }
 
@@ -248,11 +261,11 @@ handlers =
         repoRootDir <- view repoRootDir
         Log.info $ "Repo root directory: " <> pack repoRootDir
         FileWatchers.watchRepoFiles,
+      -- We need an empty handler for `workspace/didChangeConfiguration` otherwise `lsp` throws "no handler for" errors.
+      -- The actual handling happens in `ServerDefinition.onConfigChange`.
+      notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \_msg -> pure (),
       notificationHandler LSP.SMethod_TextDocumentDidOpen $ filterNot handleDidOpen,
       notificationHandler LSP.SMethod_TextDocumentDidClose $ filterNot handleDidClose,
-      notificationHandler LSP.SMethod_WorkspaceDidChangeConfiguration $ \_msg -> do
-        cfg <- getConfig
-        Log.debugP "Configuration changed" cfg,
       notificationHandler LSP.SMethod_TextDocumentDidChange $ filterNot handleDidChange,
       requestHandler LSP.SMethod_TextDocumentPrepareRename $ filterReq handlePrepareRename,
       requestHandler LSP.SMethod_TextDocumentRename $ filterReq handleRename,

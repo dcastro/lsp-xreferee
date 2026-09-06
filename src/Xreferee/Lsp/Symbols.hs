@@ -1,15 +1,20 @@
 module Xreferee.Lsp.Symbols where
 
+import Control.Lens
 import Control.Monad.State (StateT, evalStateT, get, modify)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map qualified as Map
 import Data.Set qualified as Set
+import Language.LSP.Protocol.Types qualified as LFS
 import Language.LSP.Protocol.Types qualified as LSP
+import Language.LSP.Server qualified as LSP
+import Language.LSP.VFS qualified as VFS
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db (LineNum (..), Symbol (..))
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.Prelude
+import Xreferee.Lsp.Util qualified as Util
 
 -- | An internal cache used during `insertSearchResult` to avoid repeatedly converting the same file paths to URIs.
 -- `Lsp.filePathToUri` is a relatively expensive operation.
@@ -52,8 +57,8 @@ insertSearchResult repoRootDir excludedFiles searchResult = do
           pure uri
 
 -- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
-refreshSymbolsForFile :: Uri -> LByteString -> AppM ()
-refreshSymbolsForFile uri contents = do
+reloadSymbolsForFile :: Uri -> LByteString -> AppM ()
+reloadSymbolsForFile uri contents = do
   -- Delete the old symbols for this file.
   Db.deleteSymbolsForFile uri
 
@@ -72,6 +77,46 @@ parseLine uri lineNum line =
       anchorSymbols = anchors <&> (\(anchor, columnRange) -> mkSymbol anchor uri lineNum columnRange)
       refSymbols = refs <&> (\(ref, columnRange) -> mkSymbol ref uri lineNum columnRange)
    in (anchorSymbols, refSymbols)
+
+-- | Reloads all symbols from disk, clearing the cache and re-indexing all files.
+--
+-- This should be used when "git ignore" rules change, e.g. when `.gitignore` is edited,
+-- or the user's `xreferee.ignore` setting changes.
+reloadAllSymbols :: AppM ()
+reloadAllSymbols = do
+  modifyState \appState ->
+    AppState
+      { -- Changes done to `.gitignore` invalidate the `shouldHandleFiles` cache
+        shouldHandleFiles = mempty,
+        filesWithDiagnostics = appState.filesWithDiagnostics,
+        isDbDirty = appState.isDbDirty,
+        lastConfig = appState.lastConfig
+      }
+
+  -- Delete all symbols from the db, except for files currently open in the editor.
+  openFiles <- truncateDb
+
+  -- Load all symbols from disk
+  repoRootDir <- view repoRootDir
+  cfg <- LSP.getConfig
+  searchResult <- liftIO $ X.findRefsFromGit (Util.searchOpts cfg)
+
+  insertSearchResult repoRootDir (Set.fromList openFiles) searchResult
+  where
+    -- Delete every symbol from the db, except for files currently open in the editor.
+    -- We want to keep their symbols in the db,
+    -- because they might have unsaved changes
+    truncateDb :: AppM [LSP.Uri]
+    truncateDb = do
+      -- Get the open files
+      vfs <- lift LSP.getVirtualFiles
+      let openUris = vfs ^.. VFS.vfsMap . itraversed . VFS._Open . asIndex . to LFS.fromNormalizedUri
+
+      -- Since .gitignore has changed, we need to re-evaluate which files we should handle.
+      openUris <- filterM Util.shouldHandleFileOrDir openUris
+      Db.deleteSymbolsExcept openUris
+
+      pure openUris
 
 -- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
 xToLsp :: Int -> LSP.UInt

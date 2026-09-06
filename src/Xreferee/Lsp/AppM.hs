@@ -25,9 +25,16 @@ runAppM appData env act = do
 -- Config
 ----------------------------------------------------------------------------
 
-data Config = Config {}
+data Config = Config
+  { -- | Git pathspecs to ignore when searching for refs/anchors.
+    -- See: https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefpathspecapathspec
+    ignore :: [Text]
+  }
   deriving stock (Generic, Show)
   deriving anyclass (J.ToJSON, J.FromJSON)
+
+emptyConfig :: Config
+emptyConfig = Config {ignore = []}
 
 ----------------------------------------------------------------------------
 -- AppData
@@ -76,7 +83,9 @@ data AppState = AppState
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set Uri,
     -- | Keep track of which files are ignored, see @(ref:shouldHandleFileOrDir)
-    shouldHandleFiles :: SM.Map Uri Bool
+    shouldHandleFiles :: SM.Map Uri Bool,
+    -- | Keep track of the last known configuration.
+    lastConfig :: Config
   }
 
 ----------------------------------------------------------------------------

@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+* Added `xreferee.ignore` setting.
 * If a file is open in the editor and then deleted from disk, symbols will now not be immediately deleted.
   They're only deleted when the editor tab is closed.
 * Bug fixes:
