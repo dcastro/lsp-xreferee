@@ -18,7 +18,10 @@ ensureConfigIsValid ::
 ensureConfigIsValid lastGoodIgnore = do
   cfg <- LSP.getConfig
 
-  when (cfg.ignore /= lastGoodIgnore) do
+  -- If the `ignore` setting has not changed, we don't need to validate it.
+  -- If the `ignore` setting is empty, we don't need to validate it
+  --   (and in fact, we shouldn't, because "git ls-file" would return ALL files in the repo).
+  when (cfg.ignore /= lastGoodIgnore && cfg.ignore /= []) do
     -- Check if the `ignore` setting contains well formed git pathspecs.
     res <-
       liftIO $
