@@ -12,3 +12,7 @@ The latest release for Linux / macOS / Windows can be found in the [Releases pag
 * Find All References: Navigate from an anchor to its references.
 * Diagnostics: report warnings/errors for unused anchors, duplicate anchors, and broken references.
 * Rename labels, updating all associated anchors/refs.
+
+## Configuration settings
+
+* `xreferee.ignore`: Git glob specs for paths to ignore
