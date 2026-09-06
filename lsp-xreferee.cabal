@@ -63,6 +63,7 @@ library
     ExceptionUtil
     Xreferee.Lsp
     Xreferee.Lsp.AppM
+    Xreferee.Lsp.Config
     Xreferee.Lsp.Db
     Xreferee.Lsp.Exception
     Xreferee.Lsp.FileWatchers

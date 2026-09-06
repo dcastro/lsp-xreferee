@@ -28,6 +28,7 @@ import System.FilePath qualified as FP
 import System.IO qualified as SIO
 import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
+import Xreferee.Lsp.Config qualified as Config
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.FileWatchers qualified as FileWatchers
 import Xreferee.Lsp.Git qualified as Git
@@ -186,11 +187,27 @@ setWorkspaceDir appLogger =
 
 initialize :: AppLogger -> LogAction IO (WithSeverity Text) -> LanguageContextEnv Config -> IO AppData
 initialize appLogger _startupLogger env = do
-  cfg <- runLspT env LSP.getConfig
-  searchResult <- liftIO $ X.findRefsFromGit (Util.searchOpts cfg)
-  conn <- Db.new
-
+  -- Create AppEnv
   repoRootDir <- Git.getRepoRoot
+  conn <- Db.new
+  let appEnv =
+        AppEnv
+          { logger = appLogger,
+            repoRootDir = repoRootDir,
+            logPayloads = False,
+            conn
+          }
+
+  -- Validate initial config
+  cfg <- runLspT env $ flip runReaderT appEnv do
+    Config.ensureConfigIsValid
+      -- Fallback to this if the server was initialized with an invalid `ignore` setting.
+      emptyConfig.ignore
+    LSP.getConfig
+
+  -- Load symbols and create AppState
+  searchResult <- liftIO $ X.findRefsFromGit (Util.searchOpts cfg)
+
   state <-
     newMVar
       AppState
@@ -201,13 +218,7 @@ initialize appLogger _startupLogger env = do
         }
   let appData =
         AppData
-          { env =
-              AppEnv
-                { logger = appLogger,
-                  repoRootDir = repoRootDir,
-                  logPayloads = False,
-                  conn
-                },
+          { env = appEnv,
             state
           }
 
