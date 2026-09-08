@@ -4,6 +4,7 @@ import Control.Lens
 import Control.Monad.State (StateT, evalStateT, get, modify)
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Map qualified as Map
+import Data.Map.Strict qualified as SM
 import Data.Set qualified as Set
 import Language.LSP.Protocol.Types qualified as LFS
 import Language.LSP.Protocol.Types qualified as LSP
@@ -13,6 +14,7 @@ import XReferee.SearchResult qualified as X
 import Xreferee.Lsp.AppM
 import Xreferee.Lsp.Db (LineNum (..), Symbol (..))
 import Xreferee.Lsp.Db qualified as Db
+import Xreferee.Lsp.Log qualified as Log
 import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Util qualified as Util
 
@@ -84,39 +86,54 @@ parseLine uri lineNum line =
 -- or the user's `xreferee.ignore` setting changes.
 reloadAllSymbols :: AppM ()
 reloadAllSymbols = do
-  modifyState \appState ->
+  oldState <- getState
+  putState
     AppState
       { -- Changes done to `.gitignore` invalidate the `shouldHandleFiles` cache
         shouldHandleFiles = mempty,
-        filesWithDiagnostics = appState.filesWithDiagnostics,
-        isDbDirty = appState.isDbDirty,
-        lastConfig = appState.lastConfig
+        filesWithDiagnostics = oldState.filesWithDiagnostics,
+        isDbDirty = oldState.isDbDirty,
+        lastConfig = oldState.lastConfig
       }
 
   -- Delete all symbols from the db, except for files currently open in the editor.
-  openFiles <- truncateDb
+  urisKeepSymbols <- truncateDb oldState.shouldHandleFiles
+  Log.debugP "urisKeepSymbols" urisKeepSymbols
 
   -- Load all symbols from disk
   repoRootDir <- view repoRootDir
   cfg <- LSP.getConfig
   searchResult <- liftIO $ X.findRefsFromGit (Util.searchOpts cfg)
 
-  insertSearchResult repoRootDir (Set.fromList openFiles) searchResult
+  insertSearchResult repoRootDir (Set.fromList urisKeepSymbols) searchResult
   where
-    -- Delete every symbol from the db, except for files currently open in the editor.
-    -- We want to keep their symbols in the db,
-    -- because they might have unsaved changes
-    truncateDb :: AppM [LSP.Uri]
-    truncateDb = do
+    -- Delete every symbol from the db, except for files that:
+    --   * are currently open in the editor
+    --   * were being handled before `reloadAllSymbols` was called
+    --   * will continue being handled after `reloadAllSymbols` is called
+    --
+    -- For files that meet those criteria,
+    -- we want to keep their symbols in the db,
+    -- because they might have unsaved changes.
+    -- This function returns those files.
+    --
+    -- If they were being handled but aren't anymore, we want their symbols to be deleted from the db.
+    -- If they weren't being handled, but will be, we want to load their symbols from disk.
+    truncateDb :: SM.Map Uri Bool -> AppM [LSP.Uri]
+    truncateDb oldShouldHandleFiles = do
       -- Get the open files
       vfs <- lift LSP.getVirtualFiles
       let openUris = vfs ^.. VFS.vfsMap . itraversed . VFS._Open . asIndex . to LFS.fromNormalizedUri
 
       -- Since .gitignore has changed, we need to re-evaluate which files we should handle.
-      openUris <- filterM Util.shouldHandleFileOrDir openUris
-      Db.deleteSymbolsExcept openUris
+      urisKeepSymbols <- flip filterM openUris \openUri -> do
+        let wasHandling = SM.findWithDefault False openUri oldShouldHandleFiles
+        willHandle <- Util.shouldHandleFileOrDir openUri
+        let keepSymbols = wasHandling && willHandle
+        pure keepSymbols
+      Db.deleteSymbolsExcept urisKeepSymbols
 
-      pure openUris
+      pure urisKeepSymbols
 
 -- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
 xToLsp :: Int -> LSP.UInt

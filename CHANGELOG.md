@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
   They're only deleted when the editor tab is closed.
 * Bug fixes:
   * Fixed many issues related to the editor buffer and the filesystem being out of sync.
+  * If the user edits .gitignore causing and ignored file to no longer being ignored, and if that file was open in the editor, its symbols were not being loaded.
 
 ## 0.0.3
 
