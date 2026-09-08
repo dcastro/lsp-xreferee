@@ -96,44 +96,64 @@ reloadAllSymbols = do
         lastConfig = oldState.lastConfig
       }
 
-  -- Delete all symbols from the db, except for files currently open in the editor.
-  urisKeepSymbols <- truncateDb oldState.shouldHandleFiles
-  Log.debugP "urisKeepSymbols" urisKeepSymbols
+  -- Get the open files
+  vfs <- lift LSP.getVirtualFiles
+  let openFiles = vfs ^@.. VFS.vfsMap . reindexed LFS.fromNormalizedUri itraversed . VFS._Open . to VFS.virtualFileText
 
-  -- Load all symbols from disk
+  {-
+    If a file was NOT open, then we simply delete its symbols and load them again from disk.
+
+    If an open file was being handled and will continue to be handled:
+      we keep its symbols
+      (i.e. we do NOT delete its symbols and do NOT load them).
+    If an open file was NOT being handled, but will be handled now:
+      we reload its symbols from the buffer
+      (i.e. we delete its symbols and reload them from the buffer).
+    If an open file was NOT being handled and will NOT be handled now:
+      we ignore it
+      (i.e. `Db.deleteSymbolsExcept` and `X.findRefsFromGit` will be no-ops).
+    If an open file was being handled but will NOT be handled now:
+      we delete its symbols (`X.findRefsFromGit` will be a no-op).
+
+  -}
+
+  -- Since .gitignore has changed, we need to re-evaluate which files we should handle.
+  (filesKeepSymbols, filesReloadFromBuffer) <- fmap concat $ for openFiles \(openUri, contents) -> do
+    let wasHandling = SM.findWithDefault False openUri oldState.shouldHandleFiles
+    -- Note: the line above relies on an invariant: if a file is open, there must be an entry for it in `AppState.shouldHandleFiles`
+    -- If there isn't, `wasHandling` will mistakenly be `False`.
+    --
+    -- And because we _just_ finished clearing `AppState.shouldHandleFiles`, we must re-populate it
+    -- by calling `Util.shouldHandleFileOrDir` for each open file,
+    -- like we do in the line below.
+    willHandle <- Util.shouldHandleFileOrDir openUri
+    pure
+      case (wasHandling, willHandle) of
+        -- If the file was being handled and will continue to be handled, keep its symbols.
+        (True, True) -> ([openUri], [])
+        -- If the file was NOT being handled, but will be handled now, reload its symbols from the buffer.
+        (False, True) -> ([], [(openUri, contents)])
+        (False, False) -> ([], [])
+        (True, False) -> ([], [])
+
+  Log.debugP "filesKeepSymbols" filesKeepSymbols
+  Log.debugP "filesReloadFromBuffer" $ fst <$> filesReloadFromBuffer
+
+  -- Delete symbols from the db
+  Db.deleteSymbolsExcept filesKeepSymbols
+
+  -- Load symbols from disk, except for ALL open files.
+  -- We never want to load symbols from disk for open files, because they might have unsaved changes.
   repoRootDir <- view repoRootDir
   cfg <- LSP.getConfig
   searchResult <- liftIO $ X.findRefsFromGit (Util.searchOpts cfg)
 
-  insertSearchResult repoRootDir (Set.fromList urisKeepSymbols) searchResult
-  where
-    -- Delete every symbol from the db, except for files that:
-    --   * are currently open in the editor
-    --   * were being handled before `reloadAllSymbols` was called
-    --   * will continue being handled after `reloadAllSymbols` is called
-    --
-    -- For files that meet those criteria,
-    -- we want to keep their symbols in the db,
-    -- because they might have unsaved changes.
-    -- This function returns those files.
-    --
-    -- If they were being handled but aren't anymore, we want their symbols to be deleted from the db.
-    -- If they weren't being handled, but will be, we want to load their symbols from disk.
-    truncateDb :: SM.Map Uri Bool -> AppM [LSP.Uri]
-    truncateDb oldShouldHandleFiles = do
-      -- Get the open files
-      vfs <- lift LSP.getVirtualFiles
-      let openUris = vfs ^.. VFS.vfsMap . itraversed . VFS._Open . asIndex . to LFS.fromNormalizedUri
+  insertSearchResult repoRootDir (Set.fromList $ fst <$> openFiles) searchResult
 
-      -- Since .gitignore has changed, we need to re-evaluate which files we should handle.
-      urisKeepSymbols <- flip filterM openUris \openUri -> do
-        let wasHandling = SM.findWithDefault False openUri oldShouldHandleFiles
-        willHandle <- Util.shouldHandleFileOrDir openUri
-        let keepSymbols = wasHandling && willHandle
-        pure keepSymbols
-      Db.deleteSymbolsExcept urisKeepSymbols
-
-      pure urisKeepSymbols
+  -- Load symbols from the buffer for open files that were NOT being handled,
+  -- but will be handled now.
+  for_ filesReloadFromBuffer \(uri, contents) -> do
+    reloadSymbolsForFile uri $ encodeUtf8 (fromStrict contents)
 
 -- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
 xToLsp :: Int -> LSP.UInt
