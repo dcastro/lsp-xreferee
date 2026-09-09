@@ -83,7 +83,7 @@ data AppState = AppState
     -- | Keep track of which files have warnings/errors.
     filesWithDiagnostics :: Set Uri,
     -- | Keep track of which files are ignored, see @(ref:shouldHandleFileOrDir)
-    shouldHandleFiles :: SM.Map Uri Bool,
+    shouldHandleFiles :: SM.Map NormalizedUri Bool,
     -- | Keep track of the last known configuration.
     lastConfig :: Config
   }

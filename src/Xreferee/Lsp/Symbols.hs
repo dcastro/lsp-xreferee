@@ -98,7 +98,7 @@ reloadAllSymbols = do
 
   -- Get the open files
   vfs <- lift LSP.getVirtualFiles
-  let openFiles = vfs ^@.. VFS.vfsMap . reindexed LFS.fromNormalizedUri itraversed . VFS._Open . to VFS.virtualFileText
+  let openFiles = vfs ^@.. VFS.vfsMap . itraversed . VFS._Open . to VFS.virtualFileText
 
   {-
     If a file was NOT open, then we simply delete its symbols and load them again from disk.
@@ -140,7 +140,7 @@ reloadAllSymbols = do
   Log.debugP "filesReloadFromBuffer" $ fst <$> filesReloadFromBuffer
 
   -- Delete symbols from the db
-  Db.deleteSymbolsExcept filesKeepSymbols
+  Db.deleteSymbolsExcept (LSP.fromNormalizedUri <$> filesKeepSymbols)
 
   -- Load symbols from disk, except for ALL open files.
   -- We never want to load symbols from disk for open files, because they might have unsaved changes.
@@ -148,12 +148,12 @@ reloadAllSymbols = do
   cfg <- LSP.getConfig
   searchResult <- liftIO $ X.findRefsFromGit (Util.searchOpts cfg)
 
-  insertSearchResult repoRootDir (Set.fromList $ fst <$> openFiles) searchResult
+  insertSearchResult repoRootDir (Set.fromList $ LSP.fromNormalizedUri . fst <$> openFiles) searchResult
 
   -- Load symbols from the buffer for open files that were NOT being handled,
   -- but will be handled now.
   for_ filesReloadFromBuffer \(uri, contents) -> do
-    reloadSymbolsForFile uri $ encodeUtf8 (fromStrict contents)
+    reloadSymbolsForFile (LSP.fromNormalizedUri uri) $ encodeUtf8 (fromStrict contents)
 
 -- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
 xToLsp :: Int -> LSP.UInt

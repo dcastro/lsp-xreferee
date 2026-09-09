@@ -120,7 +120,7 @@ spec =
       it "short circuits on ignored directories" do
         withDirectoryTree \tmpDir ->
           do
-            listPaths (\uri -> pure $ uri /= LSP.filePathToUri (tmpDir </> "dir" </> "subdir2")) tmpDir
+            listPaths (\uri -> pure $ uri /= mkUri (tmpDir </> "dir" </> "subdir2")) tmpDir
             `shouldReturn` Set.fromList
               [ tmpDir </> "dir" </> "file1",
                 tmpDir </> "dir" </> "file2",
@@ -130,12 +130,15 @@ spec =
       it "excludes ignored files" do
         withDirectoryTree \tmpDir ->
           do
-            listPaths (\uri -> pure $ uri /= LSP.filePathToUri (tmpDir </> "dir" </> "file1")) tmpDir
+            listPaths (\uri -> pure $ uri /= mkUri (tmpDir </> "dir" </> "file1")) tmpDir
             `shouldReturn` Set.fromList
               [ tmpDir </> "dir" </> "file2",
                 tmpDir </> "dir" </> "subdir" </> "file3",
                 tmpDir </> "dir" </> "subdir2" </> "file4"
               ]
+
+mkUri :: FilePath -> NormalizedUri
+mkUri = LSP.toNormalizedUri . LSP.filePathToUri
 
 mkCreated :: FilePath -> FileEvent
 mkCreated path =

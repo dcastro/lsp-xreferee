@@ -50,7 +50,7 @@ uriAddTrailingPathSeparator uri =
 -- | Checks whether we should ignore or process a given file or directory.
 --
 -- #(ref:shouldHandleFileOrDir)
-shouldHandleFileOrDir :: Uri -> AppM Bool
+shouldHandleFileOrDir :: LSP.NormalizedUri -> AppM Bool
 shouldHandleFileOrDir uri = do
   appState0 <- getState
   cfg <- LSP.getConfig
@@ -58,7 +58,7 @@ shouldHandleFileOrDir uri = do
   case SM.lookup uri appState0.shouldHandleFiles of
     Just should -> pure should
     Nothing -> do
-      should <- case LSP.uriToFilePath uri of
+      should <- case LSP.uriToFilePath (LSP.fromNormalizedUri uri) of
         -- `uriToFilePath` returns `Nothing` for any URI that doesn't map to a
         -- filesystem path, i.e. anything whose scheme isn't `file:`. VSCode's
         -- built-in Git extension routinely sends us events for virtual documents
@@ -72,7 +72,7 @@ shouldHandleFileOrDir uri = do
       shouldBool <- case should of
         DoHandle -> pure True
         DontHandle reason -> do
-          Log.debug $ "Ignoring file: '" <> uri.getUri <> "' (" <> reason <> ")"
+          Log.debug $ "Ignoring file: '" <> display uri <> "' (" <> reason <> ")"
           pure False
 
       -- Update the cache

@@ -28,7 +28,7 @@ import Xreferee.Lsp.Util (ReadFileError (..))
 import Xreferee.Lsp.Util qualified as Util
 
 data FileEvent = FileEvent
-  { uri :: Uri,
+  { uri :: NormalizedUri,
     eventType :: FileChangeType,
     -- The original event type from the LSP notification. This is used for logging and debugging.
     originalEventType :: LSP.FileChangeType
@@ -44,7 +44,7 @@ data FileChangeType
 mkFileEvent :: LSP.FileEvent -> FileEvent
 mkFileEvent event =
   FileEvent
-    { uri = event ^. LSP.uri,
+    { uri = event ^. LSP.uri . to LSP.toNormalizedUri,
       eventType =
         case event ^. LSP.type_ of
           LSP.FileChangeType_Deleted -> Deleted
@@ -71,10 +71,10 @@ handleDidChangeWatchedFiles = \req -> do
     let (dedupedFileEvents, droppedEvents) = dedupeEvents fileEvents
 
     for_ droppedEvents \droppedEvent -> do
-      Log.debug $ "Dropped file event: " <> tshow droppedEvent.originalEventType <> " for " <> droppedEvent.uri.getUri
+      Log.debug $ "Dropped file event: " <> tshow droppedEvent.originalEventType <> " for " <> display droppedEvent.uri
 
     for_ dedupedFileEvents \event -> do
-      let logMsg = "Handling file event: " <> tshow event.originalEventType <> " for " <> event.uri.getUri
+      let logMsg = "Handling file event: " <> tshow event.originalEventType <> " for " <> display event.uri
       annotateStackStringIO (unpack logMsg) do
         Log.debug logMsg
         whenM (Util.shouldHandleFileOrDir event.uri) do
@@ -110,10 +110,10 @@ handleFileEvent evt =
               Log.debug $ "didChangeWatchedFiles: CreatedOrChanged: loading file from disk: " <> tshow path
               Symbols.reloadSymbolsForFile uri contents
     Deleted -> do
-      filesWithSymbols <- Db.findFilesInPathWithSymbols evt.uri
+      filesWithSymbols <- Db.findFilesInPathWithSymbols (LSP.fromNormalizedUri evt.uri)
       for_ filesWithSymbols \uri -> do
         -- Check if we should handle events for this file
-        whenM (Util.shouldHandleFileOrDir uri) do
+        whenM (Util.shouldHandleFileOrDir (LSP.toNormalizedUri uri)) do
           -- Check if this file is open. If it is, we don't handle the event.
           -- If the filesystem and the editor buffer are out of sync, the editor buffer takes priority, it's the source of truth.
           -- See @(ref:check-is-open)
@@ -130,19 +130,19 @@ handleFileEvent evt =
       vf <- getVirtualFile (LSP.toNormalizedUri uri)
       pure $ Maybe.isJust vf
 
-listPaths' :: Uri -> AppM (Set FilePath)
+listPaths' :: NormalizedUri -> AppM (Set FilePath)
 listPaths' uri =
-  case LSP.uriToFilePath uri of
+  case LSP.uriToFilePath (LSP.fromNormalizedUri uri) of
     Nothing -> pure Set.empty
     Just fp -> listPaths Util.shouldHandleFileOrDir fp
 
 -- If this path points to a file, return it.
 -- If it points to a directory, traverse the directory and return all files within it.
-listPaths :: (MonadIO m) => (Uri -> m Bool) -> FilePath -> m (Set FilePath)
+listPaths :: (MonadIO m) => (NormalizedUri -> m Bool) -> FilePath -> m (Set FilePath)
 listPaths shouldHandle path = do
   -- Short-circuit if we're not meant to handle some directory subtree.
   -- Using `shouldHandleFileOrDir` has the benefit of avoiding following symlinks, which _could_ lead to an infinite loop.
-  shouldHandle (LSP.filePathToUri path) >>= \case
+  shouldHandle (LSP.toNormalizedUri $ LSP.filePathToUri path) >>= \case
     False -> pure Set.empty
     True -> do
       isFile <- liftIO $ Dir.doesFileExist path
@@ -219,14 +219,17 @@ data DropResult
 
 -- | Checks if a URI is a parent directory of another URI.
 --
--- >>>  LSP.filePathToUri "./foo" `isParentDirOf` LSP.filePathToUri "./foo/bar/file.md"
+-- >>> mkUri = LSP.toNormalizedUri . LSP.filePathToUri
+--
+-- >>> mkUri "./foo" `isParentDirOf` mkUri "./foo/bar/file.md"
 -- True
--- >>>  LSP.filePathToUri "./foo" `isParentDirOf` LSP.filePathToUri "./foobar/file.md"
+-- >>> mkUri "./foo" `isParentDirOf` mkUri "./foobar/file.md"
 -- False
--- >>> LSP.filePathToUri "./foo/bar/file.md" `isParentDirOf` LSP.filePathToUri "./foo"
+-- >>> mkUri "./foo/bar/file.md" `isParentDirOf` mkUri "./foo"
 -- False
-isParentDirOf :: Uri -> Uri -> Bool
+isParentDirOf :: NormalizedUri -> NormalizedUri -> Bool
 isParentDirOf parentDir file =
   -- We MUST add a trailing path separator.
   -- Otherwise, @./foo `isParentDirOf` ./foobar/file.md@ would incorrectly be @True@.
-  Util.uriAddTrailingPathSeparator parentDir `T.isPrefixOf` Util.uriAddTrailingPathSeparator file
+  Util.uriAddTrailingPathSeparator (LSP.fromNormalizedUri parentDir)
+    `T.isPrefixOf` Util.uriAddTrailingPathSeparator (LSP.fromNormalizedUri file)

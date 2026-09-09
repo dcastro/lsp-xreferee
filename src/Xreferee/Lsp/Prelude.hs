@@ -1,6 +1,7 @@
 module Xreferee.Lsp.Prelude
   ( module M,
     whenJust,
+    Display (..),
   )
 where
 
@@ -72,9 +73,17 @@ import ExceptionUtil as M
     displayFullException,
   )
 import Language.LSP.Protocol.Types as M
-  ( Uri (..),
+  ( NormalizedUri,
+    Uri (..),
   )
+import Language.LSP.Protocol.Types qualified as LSP
 import Xreferee.Lsp.Exception as M
 
 whenJust :: (Monad m) => Maybe a -> (a -> m ()) -> m ()
 whenJust = for_
+
+class Display a where
+  display :: a -> Text
+
+instance Display NormalizedUri where
+  display = getUri . LSP.fromNormalizedUri

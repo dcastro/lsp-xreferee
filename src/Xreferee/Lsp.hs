@@ -283,9 +283,9 @@ handlers =
       Handler AppM method ->
       Handler AppM method
     filterReq handler = \msg responder -> do
-      let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
+      let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri . to LSP.toNormalizedUri
 
-      let logMsg = "Handling " <> tshow msg._method <> " for " <> uri.getUri
+      let logMsg = "Handling " <> tshow msg._method <> " for " <> display uri
       annotateStackStringIO (unpack logMsg) do
         Log.debug logMsg
         whenM (Util.shouldHandleFileOrDir uri) do
@@ -299,9 +299,9 @@ handlers =
       Handler AppM method ->
       Handler AppM method
     filterNot handler = \msg -> do
-      let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri
+      let uri = msg ^. LSP.params . LSP.textDocument . LSP.uri . to LSP.toNormalizedUri
 
-      let logMsg = "Handling " <> tshow msg._method <> " for " <> uri.getUri
+      let logMsg = "Handling " <> tshow msg._method <> " for " <> display uri
       annotateStackStringIO (unpack logMsg) do
         Log.debug logMsg
         whenM (Util.shouldHandleFileOrDir uri) do
