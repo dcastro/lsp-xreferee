@@ -19,7 +19,17 @@ instance ToField LSP.NormalizedUri where
   toField = toField . getUri . LSP.fromNormalizedUri
 
 instance FromField LSP.NormalizedUri where
-  fromField f = LSP.toNormalizedUri . LSP.Uri <$> fromField f
+  fromField f = unsafeMkNormalizedUri <$> fromField f
+    where
+      -- We only store normalized URIs in the database,
+      -- so it's safe to re-construct a NormalizedUri directly from the stored Text without
+      -- going through normalization again.
+      --
+      -- We use the `hash` function from `hashable`, just like the original
+      -- implementation of `toNormalizedUri`:
+      -- https://hackage-content.haskell.org/package/lsp-types-2.4.0.0/docs/src/Language.LSP.Protocol.Types.Uri.html#toNormalizedUri
+      unsafeMkNormalizedUri :: Text -> NormalizedUri
+      unsafeMkNormalizedUri uri = LSP.NormalizedUri (hash uri) uri
 
 instance ToField LSP.UInt where
   toField n = toField $ Unsafe.unsafeCoerce @LSP.UInt @Word n

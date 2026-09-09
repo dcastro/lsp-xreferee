@@ -19,7 +19,7 @@ import Xreferee.Lsp.Prelude
 import Xreferee.Lsp.Util qualified as Util
 
 -- | An internal cache used during `insertSearchResult` to avoid repeatedly converting the same file paths to URIs.
--- `Lsp.filePathToUri` is a relatively expensive operation.
+-- Normalizing URIs is a relatively expensive operation.
 --
 -- The `xreferee` repo was used to stress test this.
 -- It has 19260 anchors and 15901 references across 24 files.
@@ -54,7 +54,7 @@ insertSearchResult repoRootDir excludedFiles searchResult = do
         Nothing -> do
           -- The paths returned by `xrefcheck` are relative to the git repo root,
           -- so we have to prepend the repo root to get an absolute path, which we then convert to a `file://` URI.
-          let uri = LSP.toNormalizedUri $ LSP.filePathToUri $ repoRootDir </> fp
+          let uri = Util.filePathToNormalizedUri $ repoRootDir </> fp
           modify (Map.insert fp uri)
           pure uri
 

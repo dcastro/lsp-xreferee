@@ -90,7 +90,7 @@ handleFileEvent evt =
     CreatedOrChanged -> do
       paths <- listPaths' evt.uri
       for_ paths \path -> do
-        let uri = LSP.toNormalizedUri $ LSP.filePathToUri path
+        let uri = Util.filePathToNormalizedUri path
         -- Check if this file is open. If it is, we don't handle the event.
         -- If the filesystem and the editor buffer are out of sync, the editor buffer takes priority, it's the source of truth.
         -- See @(ref:check-is-open)
@@ -142,7 +142,7 @@ listPaths :: (MonadIO m) => (NormalizedUri -> m Bool) -> FilePath -> m (Set File
 listPaths shouldHandle path = do
   -- Short-circuit if we're not meant to handle some directory subtree.
   -- Using `shouldHandleFileOrDir` has the benefit of avoiding following symlinks, which _could_ lead to an infinite loop.
-  shouldHandle (LSP.toNormalizedUri $ LSP.filePathToUri path) >>= \case
+  shouldHandle (Util.filePathToNormalizedUri path) >>= \case
     False -> pure Set.empty
     True -> do
       isFile <- liftIO $ Dir.doesFileExist path
@@ -219,7 +219,7 @@ data DropResult
 
 -- | Checks if a URI is a parent directory of another URI.
 --
--- >>> mkUri = LSP.toNormalizedUri . LSP.filePathToUri
+-- >>> mkUri = Util.filePathToNormalizedUri
 --
 -- >>> mkUri "./foo" `isParentDirOf` mkUri "./foo/bar/file.md"
 -- True

@@ -297,3 +297,17 @@ data ReadFileError
   = RFNotExists
   | RFIsDirectory
   deriving stock (Show, Eq)
+
+-- |  Note: there are 2 ways of converting a file path to a normalized URI:
+--
+-- 1. LSP.toNormalizedUri . LSP.filePathToUri
+-- 2. LSP.normalizedFilePathToUri . LSP.toNormalizedFilePath
+--
+-- The first is inefficient. `filePathToUri` normalizes the filepath into a URI,
+-- and then `toNormalizedUri` converts it back to a filepath and re-builds the URI.
+-- The second approach avoids this double normalization.
+--
+-- We should always use this `filePathToNormalizedUri` helper to ensure we do it the right way.
+filePathToNormalizedUri :: FilePath -> NormalizedUri
+filePathToNormalizedUri =
+  LSP.normalizedFilePathToUri . LSP.toNormalizedFilePath

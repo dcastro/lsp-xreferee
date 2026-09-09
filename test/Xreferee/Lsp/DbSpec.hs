@@ -5,6 +5,7 @@ import Xreferee.Lsp.AppM (AppData (..), AppEnv (..), AppState (..), emptyConfig)
 import Xreferee.Lsp.Db (Symbol (..))
 import Xreferee.Lsp.Db qualified as Db
 import Xreferee.Lsp.TestPrelude
+import Xreferee.Lsp.Util qualified as Util
 
 spec :: Spec
 spec =
@@ -16,14 +17,14 @@ spec =
             mkSymbol "foo" "file12",
             mkSymbol "foo" "file1/file"
           ]
-        Db.findFilesInPathWithSymbols (mkUri "file1")
-          `shouldReturn` Set.fromList [mkUri "file1", mkUri "file1/file"]
+        Db.findFilesInPathWithSymbols (Util.filePathToNormalizedUri "file1")
+          `shouldReturn` Set.fromList [Util.filePathToNormalizedUri "file1", Util.filePathToNormalizedUri "file1/file"]
 
 mkSymbol :: Text -> Text -> Symbol
 mkSymbol name path =
   Symbol
     { name = name,
-      uri = mkUri (unpack path),
+      uri = Util.filePathToNormalizedUri (unpack path),
       line = Db.LineNum 0,
       columnStart = 0,
       columnEnd = 0

@@ -5,6 +5,7 @@ import Language.LSP.Protocol.Types qualified as LSP
 import System.Directory qualified as Dir
 import Xreferee.Lsp.Handlers.DidChangeWatchedFiles (FileEvent (..), dedupeEvents, listPaths, mkFileEvent)
 import Xreferee.Lsp.TestPrelude
+import Xreferee.Lsp.Util qualified as Util
 
 spec :: Spec
 spec =
@@ -120,7 +121,7 @@ spec =
       it "short circuits on ignored directories" do
         withDirectoryTree \tmpDir ->
           do
-            listPaths (\uri -> pure $ uri /= mkUri (tmpDir </> "dir" </> "subdir2")) tmpDir
+            listPaths (\uri -> pure $ uri /= Util.filePathToNormalizedUri (tmpDir </> "dir" </> "subdir2")) tmpDir
             `shouldReturn` Set.fromList
               [ tmpDir </> "dir" </> "file1",
                 tmpDir </> "dir" </> "file2",
@@ -130,7 +131,7 @@ spec =
       it "excludes ignored files" do
         withDirectoryTree \tmpDir ->
           do
-            listPaths (\uri -> pure $ uri /= mkUri (tmpDir </> "dir" </> "file1")) tmpDir
+            listPaths (\uri -> pure $ uri /= Util.filePathToNormalizedUri (tmpDir </> "dir" </> "file1")) tmpDir
             `shouldReturn` Set.fromList
               [ tmpDir </> "dir" </> "file2",
                 tmpDir </> "dir" </> "subdir" </> "file3",
