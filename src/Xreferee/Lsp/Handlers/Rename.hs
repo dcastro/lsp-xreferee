@@ -18,7 +18,7 @@ handleRename :: Handler AppM 'LSP.Method_TextDocumentRename
 handleRename req responder = do
   Log.logReq req
 
-  let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let uri = req ^. LSP.params . LSP.textDocument . LSP.uri . to LSP.toNormalizedUri
   let pos = req ^. LSP.params . LSP.position
   let newLabelName = req ^. LSP.params . LSP.newName
 
@@ -34,7 +34,7 @@ handleRename req responder = do
       let anchorEdits :: Map Uri [LSP.TextEdit] =
             matchingAnchors
               <&> ( \anchor ->
-                      ( anchor.uri,
+                      ( LSP.fromNormalizedUri anchor.uri,
                         [ LSP.TextEdit
                             { _range = Symbols.symbolLocToLspRange anchor,
                               _newText = newLabelName & X.Anchor & X.renderLabel X.defaultDelims
@@ -48,7 +48,7 @@ handleRename req responder = do
       let refEdits :: Map Uri [LSP.TextEdit] =
             matchingRefs
               <&> ( \ref ->
-                      ( ref.uri,
+                      ( LSP.fromNormalizedUri ref.uri,
                         [ LSP.TextEdit
                             { _range = Symbols.symbolLocToLspRange ref,
                               _newText = newLabelName & X.Reference & X.renderLabel X.defaultDelims

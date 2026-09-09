@@ -15,8 +15,8 @@ handleDefinition :: Handler AppM 'LSP.Method_TextDocumentDefinition
 handleDefinition = \req responder -> do
   Log.logReq req
 
-  let reqUri = req ^. LSP.params ^. LSP.textDocument ^. LSP.uri
-  let reqPos = req ^. LSP.params ^. LSP.position
+  let reqUri = req ^. LSP.params . LSP.textDocument . LSP.uri . to LSP.toNormalizedUri
+  let reqPos = req ^. LSP.params . LSP.position
 
   Db.findReferenceAtPosition reqUri reqPos >>= \case
     Nothing ->
@@ -34,7 +34,7 @@ handleDefinition = \req responder -> do
                  in LSP.DefinitionLink
                       LSP.LocationLink
                         { _originSelectionRange = Just refRange,
-                          _targetUri = anchor.uri,
+                          _targetUri = LSP.fromNormalizedUri anchor.uri,
                           _targetRange = anchorRange,
                           _targetSelectionRange = anchorRange
                         }

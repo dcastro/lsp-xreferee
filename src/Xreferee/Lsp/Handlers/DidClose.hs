@@ -15,9 +15,10 @@ import Xreferee.Lsp.Prelude
 handleDidClose :: Handler AppM 'LSP.Method_TextDocumentDidClose
 handleDidClose = \req -> do
   Log.logNot req
-  let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let rawUri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let uri = LSP.toNormalizedUri rawUri
 
-  whenJust (LSP.uriToFilePath uri) \path -> do
+  whenJust (LSP.uriToFilePath rawUri) \path -> do
     liftIO (Dir.doesFileExist path) >>= \case
       True -> do
         -- If the file still exists on disk, do nothing.

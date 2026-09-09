@@ -81,7 +81,7 @@ data AppState = AppState
   { -- | True if the symbols database has been modified since the last time diagnostics were sent to the client.
     isDbDirty :: Bool,
     -- | Keep track of which files have warnings/errors.
-    filesWithDiagnostics :: Set Uri,
+    filesWithDiagnostics :: Set NormalizedUri,
     -- | Keep track of which files are ignored, see @(ref:shouldHandleFileOrDir)
     shouldHandleFiles :: SM.Map NormalizedUri Bool,
     -- | Keep track of the last known configuration.

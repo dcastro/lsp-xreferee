@@ -90,7 +90,7 @@ handleFileEvent evt =
     CreatedOrChanged -> do
       paths <- listPaths' evt.uri
       for_ paths \path -> do
-        let uri = LSP.filePathToUri path
+        let uri = LSP.toNormalizedUri $ LSP.filePathToUri path
         -- Check if this file is open. If it is, we don't handle the event.
         -- If the filesystem and the editor buffer are out of sync, the editor buffer takes priority, it's the source of truth.
         -- See @(ref:check-is-open)
@@ -110,24 +110,24 @@ handleFileEvent evt =
               Log.debug $ "didChangeWatchedFiles: CreatedOrChanged: loading file from disk: " <> tshow path
               Symbols.reloadSymbolsForFile uri contents
     Deleted -> do
-      filesWithSymbols <- Db.findFilesInPathWithSymbols (LSP.fromNormalizedUri evt.uri)
+      filesWithSymbols <- Db.findFilesInPathWithSymbols evt.uri
       for_ filesWithSymbols \uri -> do
         -- Check if we should handle events for this file
-        whenM (Util.shouldHandleFileOrDir (LSP.toNormalizedUri uri)) do
+        whenM (Util.shouldHandleFileOrDir uri) do
           -- Check if this file is open. If it is, we don't handle the event.
           -- If the filesystem and the editor buffer are out of sync, the editor buffer takes priority, it's the source of truth.
           -- See @(ref:check-is-open)
           whenM (not <$> isFileOpen uri) do
             -- If the file exists on disk, skip this.
             -- See @(ref:delete-commutative)
-            let path = LSP.uriToFilePath uri & fromMaybe (error $ "Invalid URI stored in the database: " <> unpack uri.getUri)
+            let path = LSP.uriToFilePath (LSP.fromNormalizedUri uri) & fromMaybe (error $ "Invalid URI stored in the database: " <> unpack (display uri))
             whenM (not <$> liftIO (Dir.doesFileExist path)) do
-              Log.debug $ "didChangeWatchedFiles: Deleted: Deleting symbols for file/directory: " <> uri.getUri
+              Log.debug $ "didChangeWatchedFiles: Deleted: Deleting symbols for file/directory: " <> display uri
               Db.deleteSymbolsForFile uri
   where
-    isFileOpen :: (MonadLsp Config m) => Uri -> m Bool
+    isFileOpen :: (MonadLsp Config m) => NormalizedUri -> m Bool
     isFileOpen uri = do
-      vf <- getVirtualFile (LSP.toNormalizedUri uri)
+      vf <- getVirtualFile uri
       pure $ Maybe.isJust vf
 
 listPaths' :: NormalizedUri -> AppM (Set FilePath)
@@ -231,5 +231,5 @@ isParentDirOf :: NormalizedUri -> NormalizedUri -> Bool
 isParentDirOf parentDir file =
   -- We MUST add a trailing path separator.
   -- Otherwise, @./foo `isParentDirOf` ./foobar/file.md@ would incorrectly be @True@.
-  Util.uriAddTrailingPathSeparator (LSP.fromNormalizedUri parentDir)
-    `T.isPrefixOf` Util.uriAddTrailingPathSeparator (LSP.fromNormalizedUri file)
+  Util.uriAddTrailingPathSeparator parentDir
+    `T.isPrefixOf` Util.uriAddTrailingPathSeparator file

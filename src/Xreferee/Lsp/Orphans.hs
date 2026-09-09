@@ -15,11 +15,11 @@ instance Ix LSP.UInt where
   inRange (lo, hi) i = inRange (fromIntegral @_ @Word lo, fromIntegral @_ @Word hi) (fromIntegral @_ @Word i)
   index (lo, hi) i = Ix.index (fromIntegral @_ @Word lo, fromIntegral @_ @Word hi) (fromIntegral @_ @Word i)
 
-instance ToField LSP.Uri where
-  toField uri = toField uri.getUri
+instance ToField LSP.NormalizedUri where
+  toField = toField . getUri . LSP.fromNormalizedUri
 
-instance FromField LSP.Uri where
-  fromField f = LSP.Uri <$> fromField f
+instance FromField LSP.NormalizedUri where
+  fromField f = LSP.toNormalizedUri . LSP.Uri <$> fromField f
 
 instance ToField LSP.UInt where
   toField n = toField $ Unsafe.unsafeCoerce @LSP.UInt @Word n

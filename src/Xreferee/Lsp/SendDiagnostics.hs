@@ -33,7 +33,7 @@ sendDiagnostics = do
       brokenRefs <- Db.findBrokenReferences
       duplicateAnchors <- Db.findDuplicateAnchors
 
-      let unusedAnchorsDiagnostics = do
+      let unusedAnchorsDiagnostics :: [(NormalizedUri, [LSP.Diagnostic])] = do
             anchor <- unusedAnchors
             -- entry <- Set.toList entries
             pure
@@ -52,7 +52,7 @@ sendDiagnostics = do
                 ]
               )
 
-      let brokenRefsDiagnostics = do
+      let brokenRefsDiagnostics :: [(NormalizedUri, [LSP.Diagnostic])] = do
             ref <- brokenRefs
             pure
               ( ref.uri,
@@ -70,7 +70,7 @@ sendDiagnostics = do
                 ]
               )
 
-      let duplicateAnchorsDiagnostics = do
+      let duplicateAnchorsDiagnostics :: [(NormalizedUri, [LSP.Diagnostic])] = do
             -- This `List.groupBy` relies on the db query returning anchors sorted by name
             -- @(ref:duplicate-anchors-sorted)
             anchors <- List.groupBy (\a b -> a.name == b.name) duplicateAnchors
@@ -100,13 +100,13 @@ sendDiagnostics = do
       -- Publish all diagnostics
       let allDiagnosticsByFile = Map.fromListWith (<>) $ unusedAnchorsDiagnostics <> brokenRefsDiagnostics <> duplicateAnchorsDiagnostics
       forM_ (Map.toList allDiagnosticsByFile) $ \(uri, diagnostics) -> do
-        publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (partitionBySource diagnostics)
+        publishDiagnostics 100 uri Nothing (partitionBySource diagnostics)
 
       -- Clear diagnostics for files that had diagnostics before but don't have any now.
       let filesWithDiagnosticsNow = Map.keysSet allDiagnosticsByFile
       let filesWithDiagnosticsBefore = appState.filesWithDiagnostics
       forM_ (Set.difference filesWithDiagnosticsBefore filesWithDiagnosticsNow) \uri -> do
-        publishDiagnostics 100 (LSP.toNormalizedUri uri) Nothing (Map.singleton diagnosticsSource mempty)
+        publishDiagnostics 100 uri Nothing (Map.singleton diagnosticsSource mempty)
 
       putState
         appState

@@ -41,11 +41,13 @@ searchOpts cfg =
 -- Uris always use `/`, regardless of the platform.
 --
 -- #(ref:uriAddTrailingPathSeparator)
-uriAddTrailingPathSeparator :: Uri -> Text
+uriAddTrailingPathSeparator :: NormalizedUri -> Text
 uriAddTrailingPathSeparator uri =
-  if "/" `T.isSuffixOf` uri.getUri
-    then uri.getUri
-    else uri.getUri <> "/"
+  if "/" `T.isSuffixOf` rawUri.getUri
+    then rawUri.getUri
+    else rawUri.getUri <> "/"
+  where
+    rawUri = LSP.fromNormalizedUri uri
 
 -- | Checks whether we should ignore or process a given file or directory.
 --

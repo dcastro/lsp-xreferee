@@ -137,9 +137,6 @@ spec =
                 tmpDir </> "dir" </> "subdir2" </> "file4"
               ]
 
-mkUri :: FilePath -> NormalizedUri
-mkUri = LSP.toNormalizedUri . LSP.filePathToUri
-
 mkCreated :: FilePath -> FileEvent
 mkCreated path =
   mkFileEvent $

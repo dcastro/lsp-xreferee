@@ -1,7 +1,6 @@
 module Xreferee.Lsp.DbSpec where
 
 import Data.Set qualified as Set
-import Language.LSP.Protocol.Types qualified as LSP
 import Xreferee.Lsp.AppM (AppData (..), AppEnv (..), AppState (..), emptyConfig)
 import Xreferee.Lsp.Db (Symbol (..))
 import Xreferee.Lsp.Db qualified as Db
@@ -17,14 +16,14 @@ spec =
             mkSymbol "foo" "file12",
             mkSymbol "foo" "file1/file"
           ]
-        Db.findFilesInPathWithSymbols (LSP.filePathToUri "file1")
-          `shouldReturn` Set.fromList [LSP.filePathToUri "file1", LSP.filePathToUri "file1/file"]
+        Db.findFilesInPathWithSymbols (mkUri "file1")
+          `shouldReturn` Set.fromList [mkUri "file1", mkUri "file1/file"]
 
 mkSymbol :: Text -> Text -> Symbol
 mkSymbol name path =
   Symbol
     { name = name,
-      uri = LSP.filePathToUri (unpack path),
+      uri = mkUri (unpack path),
       line = Db.LineNum 0,
       columnStart = 0,
       columnEnd = 0

@@ -26,7 +26,7 @@ type MonadDb m = (MonadReader AppData m, MonadUnliftIO m)
 -- This makes it easier to work with the LSP interface.
 data Symbol = Symbol
   { name :: Text,
-    uri :: LSP.Uri,
+    uri :: LSP.NormalizedUri,
     line :: LineNum,
     columnStart :: LSP.UInt,
     columnEnd :: LSP.UInt
@@ -111,7 +111,7 @@ insertReferences references = do
           references
     setDirty
 
-deleteSymbolsExcept :: (MonadDb m) => [LSP.Uri] -> m ()
+deleteSymbolsExcept :: (MonadDb m) => [NormalizedUri] -> m ()
 deleteSymbolsExcept uris = do
   conn <- view conn
   let placeholders = T.intercalate "," (replicate (length uris) "?")
@@ -148,7 +148,7 @@ findReferencesWithName name = do
       |]
       (Only name)
 
-findAnchorAtPosition :: (MonadDb m) => LSP.Uri -> LSP.Position -> m (Maybe Symbol)
+findAnchorAtPosition :: (MonadDb m) => NormalizedUri -> LSP.Position -> m (Maybe Symbol)
 findAnchorAtPosition uri lspPos = do
   conn <- view conn
   let reqLine = lspPos ^. LSP.line
@@ -165,7 +165,7 @@ findAnchorAtPosition uri lspPos = do
         |]
         (uri, reqLine, reqColumn, reqColumn)
 
-findReferenceAtPosition :: (MonadDb m) => LSP.Uri -> LSP.Position -> m (Maybe Symbol)
+findReferenceAtPosition :: (MonadDb m) => NormalizedUri -> LSP.Position -> m (Maybe Symbol)
 findReferenceAtPosition uri lspPos = do
   conn <- view conn
   let reqLine = lspPos ^. LSP.line
@@ -183,7 +183,7 @@ findReferenceAtPosition uri lspPos = do
         |]
         (uri, reqLine, reqColumn, reqColumn)
 
-deleteSymbolsForFile :: (MonadDb m) => LSP.Uri -> m ()
+deleteSymbolsForFile :: (MonadDb m) => NormalizedUri -> m ()
 deleteSymbolsForFile uri = do
   conn <- view conn
   liftIO $ execute conn [sql|DELETE FROM anchors WHERE uri = ?|] (Only uri)
@@ -194,7 +194,7 @@ deleteSymbolsForFile uri = do
 -- | Given a path `uri`, find all files that have symbols in the database that are either:
 -- * The file `uri` itself, or
 -- * A file within the directory `uri` (if `uri` is a directory).
-findFilesInPathWithSymbols :: (MonadDb m) => Uri -> m (Set Uri)
+findFilesInPathWithSymbols :: (MonadDb m) => NormalizedUri -> m (Set NormalizedUri)
 findFilesInPathWithSymbols uri = do
   conn <- view conn
 
@@ -210,8 +210,8 @@ findFilesInPathWithSymbols uri = do
   --
   -- NOTE: we use `instr` rather than `uri LIKE ? || '%'`, because `LIKE` would treat
   -- `%` and `_` in the URI as wildcards.
-  filesWithAnchors <- liftIO $ coerce $ query @_ @(Only Uri) conn [sql|SELECT distinct uri FROM anchors WHERE uri = ? OR instr(uri, ?) = 1|] (uri, dirPrefix)
-  filesWithRefs <- liftIO $ coerce $ query @_ @(Only Uri) conn [sql|SELECT distinct uri FROM refs WHERE uri = ? OR instr(uri, ?) = 1|] (uri, dirPrefix)
+  filesWithAnchors <- liftIO $ coerce $ query @_ @(Only NormalizedUri) conn [sql|SELECT distinct uri FROM anchors WHERE uri = ? OR instr(uri, ?) = 1|] (uri, dirPrefix)
+  filesWithRefs <- liftIO $ coerce $ query @_ @(Only NormalizedUri) conn [sql|SELECT distinct uri FROM refs WHERE uri = ? OR instr(uri, ?) = 1|] (uri, dirPrefix)
   pure $ Set.fromList (filesWithAnchors <> filesWithRefs)
 
 findUnusedAnchors :: (MonadDb m) => m [Symbol]
@@ -254,7 +254,7 @@ findDuplicateAnchors = do
         ORDER BY name
       |]
 
-deleteSymbolsInLineRange :: (MonadDb m) => LSP.Uri -> LineNum -> LineNum -> m ()
+deleteSymbolsInLineRange :: (MonadDb m) => NormalizedUri -> LineNum -> LineNum -> m ()
 deleteSymbolsInLineRange uri startLine endLine = do
   conn <- view conn
   liftIO $
@@ -270,7 +270,7 @@ deleteSymbolsInLineRange uri startLine endLine = do
       (uri, startLine, endLine)
   checkDirty conn
 
-shiftSymbolsAfterLine :: (MonadDb m) => LSP.Uri -> LineNum -> Int -> m ()
+shiftSymbolsAfterLine :: (MonadDb m) => NormalizedUri -> LineNum -> Int -> m ()
 shiftSymbolsAfterLine uri lineNum delta = do
   conn <- view conn
   when (delta /= 0) do

@@ -15,7 +15,7 @@ handleReferences :: Handler AppM 'LSP.Method_TextDocumentReferences
 handleReferences req responder = do
   Log.logReq req
 
-  let reqUri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let reqUri = req ^. LSP.params . LSP.textDocument . LSP.uri . to LSP.toNormalizedUri
   let reqPos = req ^. LSP.params . LSP.position
 
   Db.findAnchorAtPosition reqUri reqPos >>= \case

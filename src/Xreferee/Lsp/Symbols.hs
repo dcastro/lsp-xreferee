@@ -24,9 +24,9 @@ import Xreferee.Lsp.Util qualified as Util
 -- The `xreferee` repo was used to stress test this.
 -- It has 19260 anchors and 15901 references across 24 files.
 -- The handler for SMethod_Initialized went from taking 4.2s to 1.6s.
-type UriCache = Map FilePath LSP.Uri
+type UriCache = Map FilePath NormalizedUri
 
-insertSearchResult :: FilePath -> Set LSP.Uri -> X.SearchResult -> AppM ()
+insertSearchResult :: FilePath -> Set NormalizedUri -> X.SearchResult -> AppM ()
 insertSearchResult repoRootDir excludedFiles searchResult = do
   (anchors, references) <- flip evalStateT mempty do
     anchors <- toSymbols searchResult.anchors
@@ -46,7 +46,7 @@ insertSearchResult repoRootDir excludedFiles searchResult = do
               then Nothing
               else Just $ mkSymbol label uri (LineNum $ xToLsp loc.lineNum) loc.columnRange
 
-    convertFilePathToUri :: (Monad m) => FilePath -> FilePath -> StateT UriCache m LSP.Uri
+    convertFilePathToUri :: (Monad m) => FilePath -> FilePath -> StateT UriCache m NormalizedUri
     convertFilePathToUri repoRootDir fp = do
       cache <- get
       case Map.lookup fp cache of
@@ -54,12 +54,12 @@ insertSearchResult repoRootDir excludedFiles searchResult = do
         Nothing -> do
           -- The paths returned by `xrefcheck` are relative to the git repo root,
           -- so we have to prepend the repo root to get an absolute path, which we then convert to a `file://` URI.
-          let uri = LSP.filePathToUri $ repoRootDir </> fp
+          let uri = LSP.toNormalizedUri $ LSP.filePathToUri $ repoRootDir </> fp
           modify (Map.insert fp uri)
           pure uri
 
 -- | Removes the cached symbols for this file and loads the new symbols from the given file contents.
-reloadSymbolsForFile :: Uri -> LByteString -> AppM ()
+reloadSymbolsForFile :: NormalizedUri -> LByteString -> AppM ()
 reloadSymbolsForFile uri contents = do
   -- Delete the old symbols for this file.
   Db.deleteSymbolsForFile uri
@@ -73,7 +73,7 @@ reloadSymbolsForFile uri contents = do
   Db.insertReferences refs
 
 -- | Parses the anchors and references found in a single line of a file.
-parseLine :: LSP.Uri -> LineNum -> LByteString -> ([Symbol], [Symbol])
+parseLine :: NormalizedUri -> LineNum -> LByteString -> ([Symbol], [Symbol])
 parseLine uri lineNum line =
   let (anchors, refs) = X.parseLabels X.defaultDelims line
       anchorSymbols = anchors <&> (\(anchor, columnRange) -> mkSymbol anchor uri lineNum columnRange)
@@ -140,7 +140,7 @@ reloadAllSymbols = do
   Log.debugP "filesReloadFromBuffer" $ fst <$> filesReloadFromBuffer
 
   -- Delete symbols from the db
-  Db.deleteSymbolsExcept (LSP.fromNormalizedUri <$> filesKeepSymbols)
+  Db.deleteSymbolsExcept filesKeepSymbols
 
   -- Load symbols from disk, except for ALL open files.
   -- We never want to load symbols from disk for open files, because they might have unsaved changes.
@@ -148,18 +148,18 @@ reloadAllSymbols = do
   cfg <- LSP.getConfig
   searchResult <- liftIO $ X.findRefsFromGit (Util.searchOpts cfg)
 
-  insertSearchResult repoRootDir (Set.fromList $ LSP.fromNormalizedUri . fst <$> openFiles) searchResult
+  insertSearchResult repoRootDir (Set.fromList $ fst <$> openFiles) searchResult
 
   -- Load symbols from the buffer for open files that were NOT being handled,
   -- but will be handled now.
   for_ filesReloadFromBuffer \(uri, contents) -> do
-    reloadSymbolsForFile (LSP.fromNormalizedUri uri) $ encodeUtf8 (fromStrict contents)
+    reloadSymbolsForFile uri $ encodeUtf8 (fromStrict contents)
 
 -- Xreferee uses 1-based lines/columns, but LSP uses 0-based lines/columns.
 xToLsp :: Int -> LSP.UInt
 xToLsp xLine = fromIntegral @Int @LSP.UInt (xLine - 1)
 
-mkSymbol :: forall symbol. (X.Label symbol) => symbol -> LSP.Uri -> Db.LineNum -> X.ColumnRange -> Db.Symbol
+mkSymbol :: forall symbol. (X.Label symbol) => symbol -> NormalizedUri -> Db.LineNum -> X.ColumnRange -> Db.Symbol
 mkSymbol sym uri lineNum columnRange =
   Db.Symbol
     { name = X.getLabel sym,
@@ -187,6 +187,6 @@ symbolLocToLspRange sym =
 symbolLocToLspLocation :: Symbol -> LSP.Location
 symbolLocToLspLocation sym =
   LSP.Location
-    { _uri = sym.uri,
+    { _uri = LSP.fromNormalizedUri sym.uri,
       _range = symbolLocToLspRange sym
     }

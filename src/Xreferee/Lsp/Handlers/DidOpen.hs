@@ -28,10 +28,11 @@ import Xreferee.Lsp.Symbols qualified as Symbols
 handleDidOpen :: Handler AppM 'LSP.Method_TextDocumentDidOpen
 handleDidOpen = \req -> do
   Log.logNot req
-  let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let rawUri = req ^. LSP.params . LSP.textDocument . LSP.uri
+  let uri = LSP.toNormalizedUri rawUri
   let contents = req ^. LSP.params . LSP.textDocument . LSP.text . to fromStrict . to encodeUtf8
 
-  whenJust (LSP.uriToFilePath uri) \path -> do
+  whenJust (LSP.uriToFilePath rawUri) \path -> do
     isDirty <- liftIO $ checkIfBufferIsDirty path contents
     Log.debugP "Buffer is dirty" isDirty
     case isDirty of

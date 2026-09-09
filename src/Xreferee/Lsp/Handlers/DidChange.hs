@@ -23,8 +23,8 @@ handleDidChange :: Handler AppM 'LSP.Method_TextDocumentDidChange
 handleDidChange = \req -> do
   Log.logNot req
 
-  let uri = req ^. LSP.params . LSP.textDocument . LSP.uri
-  vf <- Maybe.fromJust <$> LSP.getVirtualFile (LSP.toNormalizedUri uri)
+  let uri = req ^. LSP.params . LSP.textDocument . LSP.uri . to LSP.toNormalizedUri
+  vf <- Maybe.fromJust <$> LSP.getVirtualFile uri
   let rope = vf ^. VFS.file_text
 
   let diffs = req ^. LSP.params . LSP.contentChanges
@@ -46,7 +46,7 @@ handleDidChange = \req -> do
 -- | Calculates which lines we'll need to reparse after applying the given diffs.
 -- Removes anchors/refs that are on lines that were modified by the diffs,
 -- and updates the line numbers of anchors/refs that are located after the diffs.
-applyChanges :: Uri -> [LSP.TextDocumentContentChangeEvent] -> AppM ApplyChangesResult
+applyChanges :: NormalizedUri -> [LSP.TextDocumentContentChangeEvent] -> AppM ApplyChangesResult
 applyChanges uri diffs =
   let initialState = ApplyChangesResult {linesToParse = mempty}
    in foldM go initialState diffs
